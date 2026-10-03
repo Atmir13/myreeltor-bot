@@ -11,6 +11,9 @@ from aiogram import Bot, Dispatcher
 
 from config import settings
 from database import init_db
+from handlers.admin import router as admin_router
+from handlers.payment import router as payment_router
+from handlers.search import router as search_router
 from handlers.start import router as start_router
 
 
@@ -29,7 +32,7 @@ def configure_logging() -> None:
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
     file_handler = RotatingFileHandler(
-        logs_dir / "bot.log", maxBytes=5_000_000, backupCount=3, encoding="utf-8"
+        logs_dir / "bot.log", max_bytes=5_000_000, backupCount=3, encoding="utf-8"
     )
     file_handler.setFormatter(formatter)
     root_logger.addHandler(console_handler)
@@ -41,13 +44,18 @@ async def main() -> None:
     configure_logging()
     logger = logging.getLogger(__name__)
     dispatcher = Dispatcher()
+
+    # Порядок: сначала команды и callback'и, потом текстовый поиск
+    dispatcher.include_router(payment_router)
+    dispatcher.include_router(admin_router)
     dispatcher.include_router(start_router)
+    dispatcher.include_router(search_router)
+
     try:
         await init_db()
         logger.info("База данных инициализирована")
         await dispatcher.start_polling(bot)
     except Exception:
-        # Ошибка БД фиксируется в логах, но не превращается в необработанный сбой.
         logger.exception("Не удалось инициализировать базу данных или запустить бота")
     finally:
         await bot.session.close()

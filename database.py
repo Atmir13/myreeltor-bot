@@ -1,12 +1,12 @@
-"""Общие модели и асинхронное подключение к базе данных."""
 
 from __future__ import annotations
 
-from datetime import datetime
+import os
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func, select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -25,6 +25,7 @@ class User(Base):
     username: Mapped[str | None] = mapped_column(String(255), nullable=True)
     trial_used: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     subscribed_to_channel: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    subscription_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     subscriptions: Mapped[list[Subscription]] = relationship(back_populates="user")
@@ -49,7 +50,7 @@ class Property(Base):
 
 
 class Subscription(Base):
-    """Платная подписка пользователя."""
+    """История платежей и подписок."""
 
     __tablename__ = "subscriptions"
 
@@ -57,6 +58,8 @@ class Subscription(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     subscription_expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     payment_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    amount_stars: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     user: Mapped[User] = relationship(back_populates="subscriptions")
 
@@ -92,7 +95,10 @@ def build_engine(database_url: str) -> AsyncEngine:
 
 
 def default_database_url() -> str:
-    """Вернуть путь к локальной базе проекта."""
+    """Вернуть URL базы: из переменной окружения или локальный путь."""
+    env_url = os.getenv("DATABASE_URL")
+    if env_url:
+        return env_url
     database_path = Path(__file__).resolve().parent / "data" / "realestate.db"
     database_path.parent.mkdir(parents=True, exist_ok=True)
     return f"sqlite+aiosqlite:///{database_path.as_posix()}"
@@ -106,3 +112,93 @@ async def init_db() -> None:
     """Создать таблицы, если они ещё не существуют."""
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
+
+
+# ============================
+# Функции для работы с юзером
+# ============================
+
+async def get_user(telegram_id: int) -> User | None:
+    """Вернуть пользователя по telegram_id или None."""
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(User).where(User.telegram_id == telegram_id)
+        )
+        return result.scalar_one_or_none()
+
+
+async def get_or_create_user(telegram_id: int, username: str | None = None) -> User:
+    """Вернуть пользователя, создав его при первом обращении."""
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(User).where(User.telegram_id == telegram_id)
+        )
+        user = result.scalar_one_or_none()
+        if user is None:
+            user = User(telegram_id=telegram_id, username=username)
+            session.add(user)
+            await session.commit()
+            await session.refresh(user)
+        return user
+
+
+async def update_trial_used(telegram_id: int) -> None:
+    """Пометить, что бесплатный запрос использован."""
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(User).where(User.telegram_id == telegram_id)
+        )
+        user = result.scalar_one_or_none()
+        if user is not None:
+            user.trial_used = 1
+            await session.commit()
+
+
+async def update_channel_subscription(telegram_id: int, status: int) -> None:
+    """Обновить кэш подписки на канал (0 или 1)."""
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(User).where(User.telegram_id == telegram_id)
+        )
+        user = result.scalar_one_or_none()
+        if user is not None:
+            user.subscribed_to_channel = status
+            await session.commit()
+
+
+async def update_subscription(
+    telegram_id: int,
+    days: int = 30,
+    payment_id: str | None = None,
+    amount_stars: int | None = None,
+) -> datetime:
+    """Продлить платную подписку и записать платёж в историю."""
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(User).where(User.telegram_id == telegram_id)
+        )
+        user = result.scalar_one_or_none()
+        if user is None:
+            raise ValueError("Пользователь не найден")
+
+        now = datetime.utcnow()
+        base = user.subscription_expires_at if user.subscription_expires_at and user.subscription_expires_at > now else now
+        expires_at = base + timedelta(days=days)
+        user.subscription_expires_at = expires_at
+
+        subscription = Subscription(
+            user_id=user.id,
+            subscription_expires_at=expires_at,
+            payment_id=payment_id,
+            amount_stars=amount_stars,
+        )
+        session.add(subscription)
+        await session.commit()
+        return expires_at
+
+
+def has_active_subscription(user: User) -> bool:
+    """Проверить, активна ли платная подписка."""
+    if user.subscription_expires_at is None:
+        return False
+    return user.subscription_expires_at > datetime.utcnow()
