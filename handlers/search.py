@@ -88,15 +88,20 @@ async def search_handler(message: Message) -> None:
         # Ищем объекты
         properties = await fetch_properties(limit)
 
+        # Если ничего не нашли — сжигаем триал и показываем пейволл
         if not properties:
+            if level in (LEVEL_TRIAL, LEVEL_CHANNEL):
+                await update_trial_used(message.from_user.id)
             await message.answer(
-                "Пока нет подходящих объектов. Попробуй позже или измени параметры."
+                "По твоему запросу ничего не найдено.\n\n"
+                "Попробуй другие параметры или оформи подписку — она откроет безлимитный поиск.",
+                reply_markup=paywall_keyboard(),
             )
             return
 
         # Отправляем карточки
         for prop in properties:
-            await message.answer(format_property(prop))
+            await message.answer(format_property(prop), parse_mode="HTML")
 
         # Сжигаем триал (для trial и channel)
         if level in (LEVEL_TRIAL, LEVEL_CHANNEL):
