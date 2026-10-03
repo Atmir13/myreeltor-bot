@@ -53,21 +53,23 @@ async def start_handler(message: Message) -> None:
         if is_subscribed:
             await message.answer(
                 f"Привет, {message.from_user.first_name}!\n\n"
+                "Это твой Реелтор — помогу найти квартиру или дом.\n\n"
                 "Ты подписан на наш канал — тебе доступно <b>5 объектов</b> в первом запросе.\n\n"
                 "Напиши, что ищешь. Например:\n"
                 "— двушка до 15 млн\n"
-                "— дом 4 комнаты до 20 млн\n"
-                "— студия район Центральный"
+                "— дом 4 комнаты до 20 млн",
+                parse_mode="HTML",
             )
         else:
             await message.answer(
                 f"Привет, {message.from_user.first_name}!\n\n"
-                "Я помогу найти квартиру или дом.\n\n"
+                "Это твой Реелтор — помогу найти квартиру или дом.\n\n"
                 "🎁 <b>Подпишись на наш канал</b> — и получишь <b>5 объектов</b> вместо 2 в первом запросе.\n\n"
                 "Напиши, что ищешь. Например:\n"
                 "— двушка до 15 млн\n"
                 "— дом 4 комнаты до 20 млн",
                 reply_markup=subscribe_keyboard(),
+                parse_mode="HTML",
             )
 
     except Exception:
@@ -89,7 +91,8 @@ async def check_subscription_callback(callback: CallbackQuery) -> None:
             "Ты подписан на канал — тебе доступно <b>5 объектов</b> в первом запросе.\n\n"
             "Напиши, что ищешь. Например:\n"
             "— двушка до 15 млн\n"
-            "— дом 4 комнаты до 20 млн"
+            "— дом 4 комнаты до 20 млн",
+            parse_mode="HTML",
         )
         await callback.answer("Подписка подтверждена!")
     else:
