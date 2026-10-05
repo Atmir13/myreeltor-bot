@@ -132,34 +132,60 @@ async def add_property_handler(message: Message) -> None:
         return
     raw = (message.text or "").partition(" ")[2].strip()
     parts = [part.strip() for part in raw.split("|")]
-    if len(parts) != 7:
+    if not 7 <= len(parts) <= 9:
         await message.answer(
-            "Использование:\n/add_property title | price | rooms | area | "
-            "address | district | type"
+            "Нужно минимум 7 параметров, разделённых <b>|</b>:\n"
+            "<code>Название | цена | комнаты | площадь | адрес | район | тип | "
+            "[source_url] | [seller_telegram]</code>\n\n"
+            "Пример:\n"
+            "<code>/add_property Двушка на Ленина | 8200000 | 2 | 54 | "
+            "ул. Ленина, 15 | Центральный | квартира | "
+            "https://www.avito.ru/test | reeltor_ivan</code>",
+            parse_mode="HTML",
         )
         return
     try:
-        title, price, rooms, area, address, district, property_type = parts
+        title = parts[0]
+        price_str = parts[1]
+        rooms_str = parts[2]
+        area_str = parts[3]
+        address = parts[4]
+        district = parts[5]
+        property_type = parts[6]
+        source_url = parts[7] if len(parts) > 7 and parts[7] else None
+        seller_telegram = (
+            parts[8].lstrip("@") if len(parts) > 8 and parts[8] else None
+        )
+        price = int(price_str)
+        rooms = int(rooms_str)
+        area = int(area_str)
         property_id = await add_property(
             title=title[:500],
-            price=int(price),
-            rooms=int(rooms),
-            area=int(area),
+            price=price,
+            rooms=rooms,
+            area=area,
             address=address[:500],
             district=district[:255],
             property_type=property_type[:50],
+            source_url=source_url[:1000] if source_url else None,
+            seller_telegram=seller_telegram[:255] if seller_telegram else None,
         )
-        await message.answer(
-            f"✅ Объект добавлен\n"
-            f"ID: {property_id}\n"
-            f"Название: {title}\n"
-            f"Цена: {int(price):,} ₽\n"
-            f"Комнат: {int(rooms)}\n"
-            f"Площадь: {int(area)} м²\n"
-            f"Адрес: {address}\n"
-            f"Район: {district}\n"
-            f"Тип: {property_type}"
-        )
+        response_lines = [
+            "✅ Объект добавлен",
+            f"ID: {property_id}",
+            f"Название: {title}",
+            f"Цена: {price:,} ₽".replace(",", " "),
+            f"Комнат: {rooms}",
+            f"Площадь: {area} м²",
+            f"Адрес: {address}",
+            f"Район: {district}",
+            f"Тип: {property_type}",
+        ]
+        if source_url:
+            response_lines.append(f"🔗 Объявление: {source_url}")
+        if seller_telegram:
+            response_lines.append(f"💬 Продавец: @{seller_telegram}")
+        await message.answer("\n".join(response_lines))
     except ValueError:
         await message.answer("Цена, комнаты и площадь должны быть числами.")
     except Exception:
