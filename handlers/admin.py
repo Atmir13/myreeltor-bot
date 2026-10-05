@@ -13,10 +13,12 @@ from sqlalchemy import func, select
 from config import settings
 from database import (
     User,
+    add_property,
     async_session_factory,
     get_user,
-    update_subscription,
     has_active_subscription,
+    mark_property_sold,
+    update_subscription,
 )
 
 
@@ -97,6 +99,62 @@ async def revoke_handler(message: Message) -> None:
         await session.commit()
 
     await message.answer(f"🔒 Подписка пользователя {target_id} отозвана.")
+
+
+@router.message(Command("sold"))
+async def sold_handler(message: Message) -> None:
+    """Пометить объект проданным: /sold <id>."""
+    if message.from_user is None or not is_admin(message.from_user.id):
+        return
+    parts = (message.text or "").split()
+    if len(parts) < 2:
+        await message.answer("Использование: /sold <id>")
+        return
+    try:
+        property_id = int(parts[1])
+    except ValueError:
+        await message.answer("ID объекта должен быть числом.")
+        return
+    try:
+        changed = await mark_property_sold(property_id)
+        await message.answer(
+            "✅ Объект помечен как проданный." if changed else "Объект с таким ID не найден."
+        )
+    except Exception:
+        logger.exception("Ошибка при пометке объекта проданным")
+        await message.answer("Не удалось обновить объект.")
+
+
+@router.message(Command("add_property"))
+async def add_property_handler(message: Message) -> None:
+    """Добавить тестовый объект через разделитель |."""
+    if message.from_user is None or not is_admin(message.from_user.id):
+        return
+    raw = (message.text or "").partition(" ")[2].strip()
+    parts = [part.strip() for part in raw.split("|")]
+    if len(parts) != 7:
+        await message.answer(
+            "Использование:\n/add_property title | price | rooms | area | "
+            "address | district | type"
+        )
+        return
+    try:
+        title, price, rooms, area, address, district, property_type = parts
+        property_id = await add_property(
+            title=title[:500],
+            price=int(price),
+            rooms=int(rooms),
+            area=int(area),
+            address=address[:500],
+            district=district[:255],
+            property_type=property_type[:50],
+        )
+        await message.answer(f"✅ Тестовый объект добавлен, ID: {property_id}")
+    except ValueError:
+        await message.answer("Цена, комнаты и площадь должны быть числами.")
+    except Exception:
+        logger.exception("Ошибка при добавлении тестового объекта")
+        await message.answer("Не удалось добавить объект.")
 
 
 @router.message(Command("stats"))

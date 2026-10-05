@@ -1,4 +1,6 @@
 
+"""Общие модели и асинхронное подключение к базе данных."""
+
 from __future__ import annotations
 
 import os
@@ -37,16 +39,39 @@ class Property(Base):
     __tablename__ = "properties"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    # Основные поля
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     price: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # Локация
     address: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    district: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+
+    # Параметры
+    property_type: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
     rooms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     area: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    floor: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    floors_total: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # Медиа
     photo_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     nearby_infrastructure: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Источник
     source: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    source_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    seller_telegram: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # Статус
+    status: Mapped[str] = mapped_column(String(50), default="active", nullable=False, index=True)
+    sold_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    # Служебные
     last_posted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
 class Subscription(Base):
@@ -182,7 +207,11 @@ async def update_subscription(
             raise ValueError("Пользователь не найден")
 
         now = datetime.utcnow()
-        base = user.subscription_expires_at if user.subscription_expires_at and user.subscription_expires_at > now else now
+        base = (
+            user.subscription_expires_at
+            if user.subscription_expires_at and user.subscription_expires_at > now
+            else now
+        )
         expires_at = base + timedelta(days=days)
         user.subscription_expires_at = expires_at
 
@@ -202,3 +231,109 @@ def has_active_subscription(user: User) -> bool:
     if user.subscription_expires_at is None:
         return False
     return user.subscription_expires_at > datetime.utcnow()
+
+
+# ============================
+# Функции для работы с объектами
+# ============================
+
+async def add_property(
+    title: str,
+    price: int | None = None,
+    address: str | None = None,
+    district: str | None = None,
+    property_type: str | None = None,
+    rooms: int | None = None,
+    area: int | None = None,
+    floor: int | None = None,
+    floors_total: int | None = None,
+    description: str | None = None,
+    photo_url: str | None = None,
+    source: str | None = "manual",
+    source_url: str | None = None,
+    seller_telegram: str | None = None,
+) -> int:
+    """Добавить объект и вернуть его ID."""
+    async with async_session_factory() as session:
+        prop = Property(
+            title=title,
+            price=price,
+            address=address,
+            district=district,
+            property_type=property_type,
+            rooms=rooms,
+            area=area,
+            floor=floor,
+            floors_total=floors_total,
+            description=description,
+            photo_url=photo_url,
+            source=source,
+            source_url=source_url,
+            seller_telegram=seller_telegram,
+            status="active",
+        )
+        session.add(prop)
+        await session.commit()
+        await session.refresh(prop)
+        return prop.id
+
+
+async def get_property_by_id(prop_id: int) -> Property | None:
+    """Вернуть объект по ID."""
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(Property).where(Property.id == prop_id)
+        )
+        return result.scalar_one_or_none()
+
+
+async def mark_property_sold(prop_id: int) -> bool:
+    """Пометить объект как проданный."""
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(Property).where(Property.id == prop_id)
+        )
+        prop = result.scalar_one_or_none()
+        if prop is None:
+            return False
+        prop.status = "sold"
+        prop.sold_at = datetime.utcnow()
+        await session.commit()
+        return True
+
+
+async def search_properties(
+    property_type: str | None = None,
+    rooms: int | None = None,
+    price_max: int | None = None,
+    price_min: int | None = None,
+    district: str | None = None,
+    area_min: int | None = None,
+    area_max: int | None = None,
+    limit: int | None = None,
+) -> list[Property]:
+    """Поиск объектов по фильтрам. Показывает только active."""
+    async with async_session_factory() as session:
+        stmt = select(Property).where(Property.status == "active")
+
+        if property_type:
+            stmt = stmt.where(Property.property_type == property_type)
+        if rooms is not None:
+            stmt = stmt.where(Property.rooms == rooms)
+        if price_max is not None:
+            stmt = stmt.where(Property.price <= price_max)
+        if price_min is not None:
+            stmt = stmt.where(Property.price >= price_min)
+        if district:
+            stmt = stmt.where(Property.district.ilike(f"%{district}%"))
+        if area_min is not None:
+            stmt = stmt.where(Property.area >= area_min)
+        if area_max is not None:
+            stmt = stmt.where(Property.area <= area_max)
+
+        stmt = stmt.order_by(Property.created_at.desc())
+        if limit is not None:
+            stmt = stmt.limit(limit)
+
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
