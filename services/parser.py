@@ -17,6 +17,7 @@ class SearchQuery:
     district: str | None = None
     area_min: int | None = None
     area_max: int | None = None
+    text_query: str | None = None
 
     def is_empty(self) -> bool:
         """Вернуть True, если запрос не содержит ни одного параметра."""
@@ -30,6 +31,7 @@ class SearchQuery:
                 self.district,
                 self.area_min,
                 self.area_max,
+                self.text_query,
             )
         )
 
@@ -43,6 +45,7 @@ class SearchQuery:
                 self.price_max,
                 self.price_min,
                 self.district,
+                self.text_query,
             )
         )
 
@@ -135,6 +138,31 @@ def _parse_area(text: str) -> tuple[int | None, int | None]:
     return area_min, area_max
 
 
+def _extract_text_query(text: str) -> str | None:
+    """Оставить свободные слова после удаления распознанных фильтров."""
+    remainder = text
+    patterns = [pattern for _, pattern in _TYPE_PATTERNS]
+    patterns.extend(rf"\b{re.escape(word)}\b" for word in _ROOM_WORDS)
+    patterns.extend(
+        [
+            r"\b[1-9]\d?\s*(?:-?к|комнат(?:а|ы|у)?|комн)\b",
+            r"(?:до|от|не дороже|не дешевле|максимум|минимум)\s*\d[\d\s]*(?:[.,]\d+)?\s*(?:млн|миллион(?:а|ов)?|тыс(?:яч)?|т)?\s*(?:₽|руб(?:лей|ля)?|р\.?)?",
+            r"(?:до|от)\s*\d[\d\s]*\s*(?:кв\.?\s*м|м²|квадрат(?:ных|а|ов)?(?:\s*метр(?:ов|а)?)?)",
+            r"\bрайон\s+[а-яёa-z][а-яёa-z-]{1,39}",
+            r"\b[а-яёa-z][а-яёa-z-]{1,39}\s+район\b",
+        ]
+    )
+    for pattern in patterns:
+        remainder = re.sub(pattern, " ", remainder, flags=re.IGNORECASE)
+    remainder = re.sub(r"[^а-яёa-z0-9-]+", " ", remainder.lower())
+    stop_words = {
+        "ищу", "нужна", "нужен", "нужно", "хочу", "купить", "мне", "пожалуйста",
+        "что", "нибудь", "что-нибудь", "хорошее",
+    }
+    words = [word for word in remainder.split() if len(word) >= 3 and word not in stop_words]
+    return " ".join(words) or None
+
+
 def parse_query(text: str) -> SearchQuery:
     """Преобразовать текст пользователя в фильтры поиска."""
     normalized = re.sub(r"\s+", " ", text.strip().lower())
@@ -151,4 +179,5 @@ def parse_query(text: str) -> SearchQuery:
     query.price_max, query.price_min = _parse_price(normalized)
     query.district = _parse_district(normalized)
     query.area_min, query.area_max = _parse_area(normalized)
+    query.text_query = _extract_text_query(normalized)
     return query

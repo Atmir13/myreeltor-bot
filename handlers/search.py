@@ -194,6 +194,7 @@ async def fetch_properties(query: SearchQuery, limit: int | None) -> list[Proper
         district=query.district,
         area_min=query.area_min,
         area_max=query.area_max,
+        text_query=query.text_query,
         limit=limit,
     )
 

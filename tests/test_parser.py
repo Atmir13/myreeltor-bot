@@ -55,6 +55,21 @@ def test_townhouse() -> None:
     assert parse_query("таунхаус до 12 млн").property_type == "таунхаус"
 
 
+def test_text_query_from_address() -> None:
+    query = parse_query("тверская")
+    assert query.text_query == "тверская"
+    assert not query.is_empty()
+    assert query.has_main_filters()
+
+
+def test_text_query_with_structured_filters() -> None:
+    query = parse_query("двушка тверская до 15 млн")
+    assert query.property_type == "квартира"
+    assert query.rooms == 2
+    assert query.price_max == 15_000_000
+    assert query.text_query == "тверская"
+
+
 def test_empty_query() -> None:
     query = parse_query("хочу что-нибудь хорошее")
     assert query.is_empty()

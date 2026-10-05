@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, func, select
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -327,6 +327,7 @@ async def search_properties(
     district: str | None = None,
     area_min: int | None = None,
     area_max: int | None = None,
+    text_query: str | None = None,
     limit: int | None = None,
 ) -> list[Property]:
     """Поиск объектов по фильтрам. Показывает только active."""
@@ -347,6 +348,15 @@ async def search_properties(
             stmt = stmt.where(Property.area >= area_min)
         if area_max is not None:
             stmt = stmt.where(Property.area <= area_max)
+        if text_query:
+            pattern = f"%{text_query}%"
+            stmt = stmt.where(
+                or_(
+                    Property.title.ilike(pattern),
+                    Property.address.ilike(pattern),
+                    Property.description.ilike(pattern),
+                )
+            )
 
         stmt = stmt.order_by(Property.created_at.desc())
         if limit is not None:
