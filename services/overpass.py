@@ -11,7 +11,12 @@ from typing import Any
 import aiohttp
 from sqlalchemy import select
 
-from database import Property, async_session_factory, get_property_by_id
+from database import (
+    Property,
+    async_session_factory,
+    get_property_by_id,
+    update_property_coords,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -115,7 +120,11 @@ async def enrich_property(prop_id: int) -> bool:
     coordinates = await geocode_address(prop.address)
     if coordinates is None:
         return False
-    infrastructure = await find_nearby_infrastructure(*coordinates)
+    lat, lon = coordinates
+    if not await update_property_coords(prop_id, lat, lon):
+        logger.warning("Не удалось сохранить координаты объекта %s", prop_id)
+        return False
+    infrastructure = await find_nearby_infrastructure(lat, lon)
     try:
         async with async_session_factory() as session:
             result = await session.execute(select(Property).where(Property.id == prop_id))

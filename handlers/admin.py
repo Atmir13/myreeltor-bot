@@ -18,6 +18,7 @@ from database import (
     add_property,
     async_session_factory,
     get_property_by_id,
+    update_property_coords,
     get_user,
     has_active_subscription,
     mark_property_sold,
@@ -262,6 +263,35 @@ async def enrich_handler(message: Message) -> None:
     except Exception:
         logger.exception("Ошибка обогащения объекта")
         await message.answer("Не удалось загрузить инфраструктуру.")
+
+
+@router.message(Command("coords"))
+async def coords_handler(message: Message) -> None:
+    """Сохранить координаты объекта: /coords <id> <lat> <lon>."""
+    if message.from_user is None or not is_admin(message.from_user.id):
+        return
+    parts = (message.text or "").split()
+    if len(parts) != 4:
+        await message.answer("Использование: /coords <id> <lat> <lon>")
+        return
+    try:
+        property_id = int(parts[1])
+        lat = float(parts[2])
+        lon = float(parts[3])
+        if not -90 <= lat <= 90 or not -180 <= lon <= 180:
+            raise ValueError
+        saved = await update_property_coords(property_id, lat, lon)
+        if not saved:
+            await message.answer(f"Объект #{property_id} не найден.")
+            return
+        await message.answer(
+            f"✅ Координаты для объекта #{property_id} сохранены: {lat}, {lon}"
+        )
+    except ValueError:
+        await message.answer("ID, широта и долгота должны быть корректными числами.")
+    except Exception:
+        logger.exception("Ошибка сохранения координат объекта")
+        await message.answer("Не удалось сохранить координаты.")
 
 
 @router.message(Command("reset_trial"))

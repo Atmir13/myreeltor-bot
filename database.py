@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func, select
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, func, select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -47,6 +47,8 @@ class Property(Base):
 
     # Локация
     address: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     district: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
 
     # Параметры
@@ -276,6 +278,21 @@ async def add_property(
         await session.commit()
         await session.refresh(prop)
         return prop.id
+
+
+async def update_property_coords(prop_id: int, lat: float, lon: float) -> bool:
+    """Сохранить координаты объекта."""
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(Property).where(Property.id == prop_id)
+        )
+        prop = result.scalar_one_or_none()
+        if prop is None:
+            return False
+        prop.latitude = lat
+        prop.longitude = lon
+        await session.commit()
+        return True
 
 
 async def get_property_by_id(prop_id: int) -> Property | None:

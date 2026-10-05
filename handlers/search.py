@@ -25,6 +25,7 @@ from services.access import (
     get_access_level,
     get_limit_for_level,
 )
+from services.map_generator import generate_osm_link
 from services.parser import SearchQuery, parse_query
 
 
@@ -56,6 +57,43 @@ def similar_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="🔍 Найти похожие", callback_data="find_similar")]
         ]
     )
+
+
+async def build_property_keyboard(prop: Property) -> InlineKeyboardMarkup | None:
+    """Собрать клавиатуру карточки отдельными рядами."""
+    rows: list[list[InlineKeyboardButton]] = []
+    if prop.source_url:
+        rows.append([InlineKeyboardButton(text="🔗 Открыть объявление", url=prop.source_url)])
+    elif prop.seller_telegram:
+        username = prop.seller_telegram.lstrip("@").strip()
+        if username:
+            rows.append(
+                [InlineKeyboardButton(text="💬 Написать продавцу", url=f"https://t.me/{username}")]
+            )
+    if prop.latitude is not None and prop.longitude is not None:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="🗺️ Показать на карте",
+                    url=await generate_osm_link(prop.latitude, prop.longitude),
+                )
+            ]
+        )
+    if prop.nearby_infrastructure:
+        try:
+            data = json.loads(prop.nearby_infrastructure)
+            total = len(data.get("schools", [])) + len(data.get("kindergartens", []))
+            if total > 1:
+                rows.append(
+                    [
+                        InlineKeyboardButton(
+                            text="📍 Показать все", callback_data=f"infra:{prop.id}"
+                        )
+                    ]
+                )
+        except (TypeError, ValueError):
+            logger.warning("Некорректный JSON инфраструктуры для объекта %s", prop.id)
+    return InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
 
 
 def infrastructure_keyboard(prop: Property) -> InlineKeyboardMarkup | None:
@@ -241,21 +279,16 @@ async def search_handler(message: Message) -> None:
             return
 
         for prop in properties:
-            markups = []
+            rows: list[list[InlineKeyboardButton]] = []
             if prop.status in {"sold", "archived"}:
-                markups.append(similar_keyboard())
-            else:
-                contact_markup = property_keyboard(prop)
-                if contact_markup:
-                    markups.append(contact_markup)
-            infrastructure_markup = infrastructure_keyboard(prop)
-            if infrastructure_markup:
-                markups.append(infrastructure_markup)
-            markup = None
-            if markups:
-                buttons = [button for item in markups for button in item.inline_keyboard]
-                markup = InlineKeyboardMarkup(inline_keyboard=buttons)
-            await message.answer(format_property(prop), parse_mode="HTML", reply_markup=markup)
+                rows.extend(similar_keyboard().inline_keyboard)
+            card_markup = await build_property_keyboard(prop)
+            if card_markup:
+                rows.extend(card_markup.inline_keyboard)
+            markup = InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
+            await message.answer(
+                format_property(prop), parse_mode="HTML", reply_markup=markup
+            )
 
         if level in (LEVEL_TRIAL, LEVEL_CHANNEL):
             await update_trial_used(message.from_user.id)
