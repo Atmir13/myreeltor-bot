@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import json
 import logging
 
 from aiogram import Router
@@ -12,6 +13,7 @@ from database import (
     Property,
     async_session_factory,
     get_or_create_user,
+    get_property_by_id,
     search_properties,
     update_trial_used,
 )
@@ -52,6 +54,25 @@ def similar_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="🔍 Найти похожие", callback_data="find_similar")]
+        ]
+    )
+
+
+def infrastructure_keyboard(prop: Property) -> InlineKeyboardMarkup | None:
+    """Сформировать кнопку полного списка инфраструктуры."""
+    if not prop.nearby_infrastructure:
+        return None
+    try:
+        data = json.loads(prop.nearby_infrastructure)
+    except (TypeError, ValueError):
+        logger.warning("Некорректный JSON инфраструктуры для объекта %s", prop.id)
+        return None
+    total = len(data.get("schools", [])) + len(data.get("kindergartens", []))
+    if total <= 1:
+        return None
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📍 Показать все", callback_data=f"infra:{prop.id}")]
         ]
     )
 
@@ -99,6 +120,27 @@ def format_property(prop: Property) -> str:
         floor = _value(prop.floor)
         floors_total = _value(prop.floors_total)
         lines.append(f"🏢 Этаж: {floor} / {floors_total}")
+    if prop.nearby_infrastructure:
+        try:
+            infrastructure = json.loads(prop.nearby_infrastructure)
+            schools = infrastructure.get("schools", [])
+            kindergartens = infrastructure.get("kindergartens", [])
+            nearby_lines = ["🎓 Рядом:"]
+            if schools:
+                school = schools[0]
+                nearby_lines.append(
+                    f"• {_value(school.get('name'))} — {_value(school.get('distance_m'))} м"
+                )
+            if kindergartens:
+                kindergarten = kindergartens[0]
+                nearby_lines.append(
+                    f"• {_value(kindergarten.get('name'))} — "
+                    f"{_value(kindergarten.get('distance_m'))} м"
+                )
+            if len(nearby_lines) > 1:
+                lines.extend(nearby_lines)
+        except (TypeError, ValueError):
+            logger.warning("Некорректный JSON инфраструктуры для объекта %s", prop.id)
     if prop.description:
         lines.append(f"\n{html.escape(prop.description[:300])}")
     return "\n".join(lines)
@@ -116,6 +158,40 @@ async def fetch_properties(query: SearchQuery, limit: int | None) -> list[Proper
         area_max=query.area_max,
         limit=limit,
     )
+
+
+@router.callback_query(lambda callback: callback.data and callback.data.startswith("infra:"))
+async def infrastructure_handler(callback: CallbackQuery) -> None:
+    """Показать полный список школ и садиков для объекта."""
+    await callback.answer()
+    if callback.message is None or callback.data is None:
+        return
+    try:
+        property_id = int(callback.data.split(":", 1)[1])
+        prop = await get_property_by_id(property_id)
+        if prop is None or not prop.nearby_infrastructure:
+            await callback.message.answer("Данные об инфраструктуре пока недоступны.")
+            return
+        data = json.loads(prop.nearby_infrastructure)
+        lines = ["🎓 Школы рядом:"]
+        schools = data.get("schools", [])
+        lines.extend(
+            f"• {_value(item.get('name'))} — {_value(item.get('distance_m'))} м"
+            for item in schools
+        )
+        lines.append("\n🧸 Садики рядом:")
+        kindergartens = data.get("kindergartens", [])
+        lines.extend(
+            f"• {_value(item.get('name'))} — {_value(item.get('distance_m'))} м"
+            for item in kindergartens
+        )
+        await callback.message.answer("\n".join(lines))
+    except (ValueError, TypeError, json.JSONDecodeError):
+        logger.exception("Некорректные данные инфраструктуры")
+        await callback.message.answer("Не удалось показать инфраструктуру.")
+    except Exception:
+        logger.exception("Ошибка показа инфраструктуры")
+        await callback.message.answer("Сервис временно недоступен, попробуйте позже.")
 
 
 @router.callback_query(lambda callback: callback.data == "find_similar")
@@ -165,7 +241,20 @@ async def search_handler(message: Message) -> None:
             return
 
         for prop in properties:
-            markup = similar_keyboard() if prop.status in {"sold", "archived"} else property_keyboard(prop)
+            markups = []
+            if prop.status in {"sold", "archived"}:
+                markups.append(similar_keyboard())
+            else:
+                contact_markup = property_keyboard(prop)
+                if contact_markup:
+                    markups.append(contact_markup)
+            infrastructure_markup = infrastructure_keyboard(prop)
+            if infrastructure_markup:
+                markups.append(infrastructure_markup)
+            markup = None
+            if markups:
+                buttons = [button for item in markups for button in item.inline_keyboard]
+                markup = InlineKeyboardMarkup(inline_keyboard=buttons)
             await message.answer(format_property(prop), parse_mode="HTML", reply_markup=markup)
 
         if level in (LEVEL_TRIAL, LEVEL_CHANNEL):
