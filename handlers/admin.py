@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 from datetime import datetime
 
@@ -15,11 +17,13 @@ from database import (
     User,
     add_property,
     async_session_factory,
+    get_property_by_id,
     get_user,
     has_active_subscription,
     mark_property_sold,
     update_subscription,
 )
+from services.overpass import enrich_property
 
 
 router = Router()
@@ -186,11 +190,78 @@ async def add_property_handler(message: Message) -> None:
         if seller_telegram:
             response_lines.append(f"💬 Продавец: @{seller_telegram}")
         await message.answer("\n".join(response_lines))
+        asyncio.create_task(
+            _enrich_and_notify(property_id, message.bot, message.from_user.id)
+        )
     except ValueError:
         await message.answer("Цена, комнаты и площадь должны быть числами.")
     except Exception:
         logger.exception("Ошибка при добавлении тестового объекта")
         await message.answer("Не удалось добавить объект.")
+
+
+async def _enrich_and_notify(prop_id: int, bot, admin_id: int) -> None:
+    """Обогатить объект инфраструктурой и уведомить администратора."""
+    try:
+        success = await enrich_property(prop_id)
+        if success:
+            prop = await get_property_by_id(prop_id)
+            if prop and prop.nearby_infrastructure:
+                data = json.loads(prop.nearby_infrastructure)
+                schools = len(data.get("schools", []))
+                kindergartens = len(data.get("kindergartens", []))
+                await bot.send_message(
+                    admin_id,
+                    f"🎓 Инфраструктура для объекта #{prop_id} загружена: "
+                    f"{schools} школ, {kindergartens} садиков.",
+                )
+                return
+        logger.warning("Инфраструктура для объекта %s не загружена", prop_id)
+        await bot.send_message(
+            admin_id,
+            f"⚠️ Не удалось загрузить инфраструктуру для объекта #{prop_id}. "
+            "Возможно, адрес не найден или Overpass недоступен.",
+        )
+    except Exception:
+        logger.exception("Ошибка при обогащении объекта #%s", prop_id)
+        try:
+            await bot.send_message(
+                admin_id,
+                f"❌ Ошибка при загрузке инфраструктуры для объекта #{prop_id}.",
+            )
+        except Exception:
+            logger.exception("Не удалось уведомить администратора об ошибке обогащения")
+
+
+@router.message(Command("enrich"))
+async def enrich_handler(message: Message) -> None:
+    """Загрузить инфраструктуру для объекта: /enrich <id>."""
+    if message.from_user is None or not is_admin(message.from_user.id):
+        return
+    parts = (message.text or "").split()
+    if len(parts) < 2:
+        await message.answer("Использование: /enrich <id>")
+        return
+    try:
+        property_id = int(parts[1])
+        enriched = await enrich_property(property_id)
+        if not enriched:
+            await message.answer("Не удалось (адрес не найден или данные уже есть)")
+            return
+        from database import get_property_by_id
+
+        prop = await get_property_by_id(property_id)
+        data = json.loads(prop.nearby_infrastructure or "{}") if prop else {}
+        await message.answer(
+            f"✅ Инфраструктура добавлена для объекта #{property_id}\n"
+            f"Школ: {len(data.get('schools', []))}\n"
+            f"Садиков: {len(data.get('kindergartens', []))}"
+        )
+    except ValueError:
+        await message.answer("ID объекта должен быть числом.")
+    except Exception:
+        logger.exception("Ошибка обогащения объекта")
+        await message.answer("Не удалось загрузить инфраструктуру.")
 
 
 @router.message(Command("reset_trial"))
