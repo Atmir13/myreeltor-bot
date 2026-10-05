@@ -22,7 +22,7 @@ from database import (
 logger = logging.getLogger(__name__)
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
-USER_AGENT = "MyReeltorBot/1.0 (contact@example.com)"
+USER_AGENT = "MyReeltorBot/1.0 (contact@myreeltor.ru)"
 
 
 def _haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -43,18 +43,31 @@ async def geocode_address(address: str) -> tuple[float, float] | None:
     if not address.strip():
         logger.warning("Нельзя геокодировать пустой адрес")
         return None
+    logger.info("Geocoding address: %s", address)
     try:
-        timeout = aiohttp.ClientTimeout(total=10)
         headers = {"User-Agent": USER_AGENT}
         params = {"q": address, "format": "json", "limit": 1}
-        async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
-            async with session.get(NOMINATIM_URL, params=params) as response:
-                response.raise_for_status()
+        timeout = aiohttp.ClientTimeout(total=10)
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                NOMINATIM_URL,
+                params=params,
+                headers=headers,
+                timeout=timeout,
+            ) as response:
+                if response.status != 200:
+                    logger.warning(
+                        "Nominatim вернул %s для адреса: %s", response.status, address
+                    )
+                    return None
                 data = await response.json()
+        logger.info("Nominatim response: %s results", len(data))
         if not data:
-            logger.warning("Nominatim не нашёл адрес")
+            logger.warning("Nominatim не нашёл адрес: %s", address)
             return None
-        return float(data[0]["lat"]), float(data[0]["lon"])
+        lat = float(data[0]["lat"])
+        lon = float(data[0]["lon"])
+        return lat, lon
     except (aiohttp.ClientError, asyncio.TimeoutError, KeyError, TypeError, ValueError):
         logger.exception("Ошибка геокодирования адреса")
         return None
@@ -74,12 +87,23 @@ async def find_nearby_infrastructure(
 );
 out center;"""
     try:
+        headers = {"User-Agent": USER_AGENT}
         timeout = aiohttp.ClientTimeout(total=30)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(OVERPASS_URL, data={"data": query}) as response:
-                response.raise_for_status()
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                OVERPASS_URL,
+                data={"data": query},
+                headers=headers,
+                timeout=timeout,
+            ) as response:
+                response_status = getattr(response, "status", 200)
+                if response_status != 200:
+                    logger.warning("Overpass вернул HTTP %s", response_status)
+                    return empty
                 payload = await response.json()
-        for element in payload.get("elements", []):
+        elements = payload.get("elements", [])
+        logger.info("Overpass response: %s elements", len(elements))
+        for element in elements:
             tags = element.get("tags") or {}
             name = str(tags.get("name", "")).strip()
             if not name:
@@ -124,6 +148,7 @@ async def enrich_property(prop_id: int) -> bool:
     if not await update_property_coords(prop_id, lat, lon):
         logger.warning("Не удалось сохранить координаты объекта %s", prop_id)
         return False
+    logger.info("Saved coords for property #%s: %s, %s", prop_id, lat, lon)
     infrastructure = await find_nearby_infrastructure(lat, lon)
     try:
         async with async_session_factory() as session:
