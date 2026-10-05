@@ -6,7 +6,7 @@ import html
 import logging
 
 from aiogram import Router
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from database import (
     Property,
@@ -31,8 +31,10 @@ logger = logging.getLogger(__name__)
 
 
 SEARCH_HELP = (
-    "Опиши подробнее, что ищешь. Например: двушка до 15 млн, "
-    "дом 4 комнаты до 20 млн, студия район Центральный"
+    "Опиши подробнее, что ищешь. Например:\n"
+    "— двушка до 15 млн\n"
+    "— дом 4 комнаты до 20 млн\n"
+    "— студия район Центральный"
 )
 
 
@@ -114,6 +116,14 @@ async def fetch_properties(query: SearchQuery, limit: int | None) -> list[Proper
         area_max=query.area_max,
         limit=limit,
     )
+
+
+@router.callback_query(lambda callback: callback.data == "find_similar")
+async def find_similar_handler(callback: CallbackQuery) -> None:
+    """Ответить на кнопку похожих объектов без полноценного поиска."""
+    await callback.answer()
+    if callback.message is not None:
+        await callback.message.answer("Уточни параметры — и я найду похожие.")
 
 
 @router.message(lambda msg: msg.text is not None and not msg.text.startswith("/"))

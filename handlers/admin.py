@@ -149,12 +149,47 @@ async def add_property_handler(message: Message) -> None:
             district=district[:255],
             property_type=property_type[:50],
         )
-        await message.answer(f"✅ Тестовый объект добавлен, ID: {property_id}")
+        await message.answer(
+            f"✅ Объект добавлен\n"
+            f"ID: {property_id}\n"
+            f"Название: {title}\n"
+            f"Цена: {int(price):,} ₽\n"
+            f"Комнат: {int(rooms)}\n"
+            f"Площадь: {int(area)} м²\n"
+            f"Адрес: {address}\n"
+            f"Район: {district}\n"
+            f"Тип: {property_type}"
+        )
     except ValueError:
         await message.answer("Цена, комнаты и площадь должны быть числами.")
     except Exception:
         logger.exception("Ошибка при добавлении тестового объекта")
         await message.answer("Не удалось добавить объект.")
+
+
+@router.message(Command("reset_trial"))
+async def reset_trial_handler(message: Message) -> None:
+    """Сбросить триал текущего администратора для тестирования."""
+    if message.from_user is None or not is_admin(message.from_user.id):
+        return
+    try:
+        user = await get_user(message.from_user.id)
+        if user is None:
+            await message.answer("Пользователь ещё не зарегистрирован.")
+            return
+        async with async_session_factory() as session:
+            result = await session.execute(select(User).where(User.id == user.id))
+            current_user = result.scalar_one_or_none()
+            if current_user is None:
+                await message.answer("Пользователь не найден.")
+                return
+            current_user.trial_used = 0
+            await session.commit()
+        await message.answer("✅ Триал сброшен")
+        logger.info("Администратор сбросил свой триал")
+    except Exception:
+        logger.exception("Ошибка при сбросе триала")
+        await message.answer("Не удалось сбросить триал.")
 
 
 @router.message(Command("stats"))
