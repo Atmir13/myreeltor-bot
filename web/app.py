@@ -14,6 +14,6 @@ app = FastAPI(title="MyReeltor")
 app.mount("/static", StaticFiles(directory=SITE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=SITE_DIR / "templates")
 
-from site.routes import router  # noqa: E402
+from web.routes import router  # noqa: E402
 
 app.include_router(router)

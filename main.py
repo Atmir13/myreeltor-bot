@@ -10,14 +10,13 @@ from pathlib import Path
 import uvicorn
 from aiogram import Bot, Dispatcher
 
-import sitecustomize  # noqa: F401
 from config import settings
 from database import init_db
 from handlers.admin import router as admin_router
 from handlers.payment import router as payment_router
 from handlers.search import router as search_router
 from handlers.start import router as start_router
-from site.app import app as fastapi_app
+from web.app import app as fastapi_app
 
 
 bot = Bot(token=settings.bot_token)
