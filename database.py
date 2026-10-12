@@ -343,7 +343,13 @@ async def search_properties(
         if price_min is not None:
             stmt = stmt.where(Property.price >= price_min)
         if district:
-            stmt = stmt.where(Property.district.ilike(f"%{district}%"))
+            district_pattern = f"%{district}%"
+            stmt = stmt.where(
+                or_(
+                    Property.district.ilike(district_pattern),
+                    Property.address.ilike(district_pattern),
+                )
+            )
         if area_min is not None:
             stmt = stmt.where(Property.area >= area_min)
         if area_max is not None:
