@@ -5,17 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}MyReeltor — недвижимость{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
+    {% block head %}{% endblock %}
 </head>
 <body>
 <header class="site-header">
     <div class="container header-inner">
         <a class="logo" href="/">MyReeltor</a>
-        <nav><a href="/">Главная</a><a href="/add">Добавить объект</a></nav>
+        <nav><a href="/">Главная</a><a href="/favorites">⭐ Избранное</a><a href="/add">Добавить объект</a></nav>
     </div>
 </header>
 <main class="container">{% block content %}{% endblock %}</main>
 <footer class="site-footer">
     <div class="container">© 2025 MyReeltor · <a href="https://t.me/MyReeltor_bot">Открыть бота</a></div>
 </footer>
+{% block scripts %}{% endblock %}
 </body>
 </html>
