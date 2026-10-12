@@ -52,6 +52,10 @@ async def check_channel_subscription(bot: Bot, user_id: int) -> bool:
 
 async def get_access_level(bot: Bot, user: User) -> str:
     """Определить уровень доступа пользователя."""
+    # Владелец бота получает безлимитный доступ автоматически.
+    if user.telegram_id == settings.admin_id:
+        return LEVEL_PAID
+
     # 1. Платная подписка — высший приоритет
     if has_active_subscription(user):
         return LEVEL_PAID
