@@ -132,10 +132,19 @@ async def import_csv(file_path: str) -> dict[str, int]:
                 latitude = _parse_float(_text(row, "lat"))
                 longitude = _parse_float(_text(row, "lng"))
 
+                city = _text(row, "Город")
+                street = _text(row, "Адрес") or _text(row, "Метро/Район")
+                if city and street:
+                    address = f"г. {city}, {street}"
+                elif city:
+                    address = f"г. {city}"
+                else:
+                    address = street
+
                 property_id = await add_property(
                     title=_text(row, "Название"),
                     price=price,
-                    address=_text(row, "Адрес") or _text(row, "Метро/Район"),
+                    address=address,
                     district=_text(row, "Метро/Район"),
                     property_type=normalize_property_type(_text(row, "Категория2")),
                     rooms=rooms,
@@ -151,7 +160,7 @@ async def import_csv(file_path: str) -> dict[str, int]:
                     await update_property_coords(property_id, latitude, longitude)
 
                 statistics["imported"] += 1
-                print(f"Импортировано объявление {property_id}: {_text(row, 'Название')}")
+                print(f"Импортировано объявление {property_id}")
             except Exception:
                 statistics["skipped"] += 1
                 logger.exception("Ошибка в строке %s: объявление пропущено", row_number)
