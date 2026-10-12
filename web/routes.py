@@ -85,6 +85,14 @@ async def index(
     max_price = _int_or_none(price_max, "цена до")
     current_page = max(1, _int_or_none(page, "страница") or 1)
     clean_district = district.strip() if district and district.strip() not in {"all", ""} else None
+    logger.info(
+        "Поиск: district=%r, type=%r, rooms=%r, price=%r-%r",
+        district,
+        property_type,
+        rooms,
+        price_min,
+        price_max,
+    )
 
     try:
         all_properties = await search_properties(

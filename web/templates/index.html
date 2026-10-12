@@ -11,40 +11,13 @@
 <label>Район<select name="district">
     <option value="">Все районы</option>
     <optgroup label="Города">
-        <option value="Нальчик" {% if filters.district == 'Нальчик' %}selected{% endif %}>г. Нальчик</option>
-        <option value="Прохладный" {% if filters.district == 'Прохладный' %}selected{% endif %}>г. Прохладный</option>
-        <option value="Баксан" {% if filters.district == 'Баксан' %}selected{% endif %}>г. Баксан</option>
-        <option value="Терек" {% if filters.district == 'Терек' %}selected{% endif %}>г. Терек</option>
-        <option value="Майский" {% if filters.district == 'Майский' %}selected{% endif %}>г. Майский</option>
-        <option value="Нарткала" {% if filters.district == 'Нарткала' %}selected{% endif %}>г. Нарткала</option>
-        <option value="Залукокоаже" {% if filters.district == 'Залукокоаже' %}selected{% endif %}>г. Залукокоаже</option>
-        <option value="Чегем" {% if filters.district == 'Чегем' %}selected{% endif %}>г. Чегем</option>
-        <option value="Тырныауз" {% if filters.district == 'Тырныауз' %}selected{% endif %}>г. Тырныауз</option>
+        {% for value, label in [('Нальчик', 'г. Нальчик'), ('Прохладный', 'г. Прохладный'), ('Баксан', 'г. Баксан'), ('Терек', 'г. Терек'), ('Майский', 'г. Майский'), ('Нарткала', 'г. Нарткала'), ('Залукокоаже', 'г. Залукокоаже'), ('Чегем', 'г. Чегем'), ('Тырныауз', 'г. Тырныауз')] %}<option value="{{ value }}" {% if filters.district == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
     </optgroup>
     <optgroup label="Районы">
-        <option value="Чегемский" {% if filters.district == 'Чегемский' %}selected{% endif %}>Чегемский район</option>
-        <option value="Урванский" {% if filters.district == 'Урванский' %}selected{% endif %}>Урванский район</option>
-        <option value="Терский" {% if filters.district == 'Терский' %}selected{% endif %}>Терский район</option>
-        <option value="Майский" {% if filters.district == 'Майский' %}selected{% endif %}>Майский район</option>
-        <option value="Прохладненский" {% if filters.district == 'Прохладненский' %}selected{% endif %}>Прохладненский район</option>
-        <option value="Баксанский" {% if filters.district == 'Баксанский' %}selected{% endif %}>Баксанский район</option>
-        <option value="Зольский" {% if filters.district == 'Зольский' %}selected{% endif %}>Зольский район</option>
-        <option value="Эльбрусский" {% if filters.district == 'Эльбрусский' %}selected{% endif %}>Эльбрусский район</option>
-        <option value="Черекский" {% if filters.district == 'Черекский' %}selected{% endif %}>Черекский район</option>
-        <option value="Лескенский" {% if filters.district == 'Лескенский' %}selected{% endif %}>Лескенский район</option>
+        {% for value in ['Чегемский', 'Урванский', 'Терский', 'Майский', 'Прохладненский', 'Баксанский', 'Зольский', 'Эльбрусский', 'Черекский', 'Лескенский'] %}<option value="{{ value }}" {% if filters.district == value %}selected{% endif %}>{{ value }} район</option>{% endfor %}
     </optgroup>
     <optgroup label="Населённые пункты">
-        <option value="Шалушка" {% if filters.district == 'Шалушка' %}selected{% endif %}>с. Шалушка</option>
-        <option value="Дыгулыбгей" {% if filters.district == 'Дыгулыбгей' %}selected{% endif %}>с. Дыгулыбгей</option>
-        <option value="Исламей" {% if filters.district == 'Исламей' %}selected{% endif %}>с. Исламей</option>
-        <option value="Заюково" {% if filters.district == 'Заюково' %}selected{% endif %}>с. Заюково</option>
-        <option value="Кишпек" {% if filters.district == 'Кишпек' %}selected{% endif %}>с. Кишпек</option>
-        <option value="Малка" {% if filters.district == 'Малка' %}selected{% endif %}>с. Малка</option>
-        <option value="Плановское" {% if filters.district == 'Плановское' %}selected{% endif %}>с. Плановское</option>
-        <option value="Красноармейское" {% if filters.district == 'Красноармейское' %}selected{% endif %}>с. Красноармейское</option>
-        <option value="Прималкинское" {% if filters.district == 'Прималкинское' %}selected{% endif %}>с. Прималкинское</option>
-        <option value="Александровская" {% if filters.district == 'Александровская' %}selected{% endif %}>ст. Александровская</option>
-        <option value="Котляревская" {% if filters.district == 'Котляревская' %}selected{% endif %}>ст. Котляревская</option>
+        {% for value in ['Шалушка', 'Дыгулыбгей', 'Исламей', 'Заюково', 'Кишпек', 'Малка', 'Плановское', 'Красноармейское', 'Прималкинское'] %}<option value="{{ value }}" {% if filters.district == value %}selected{% endif %}>с. {{ value }}</option>{% endfor %}
     </optgroup>
 </select></label>
 <button class="button" type="submit">Найти</button>

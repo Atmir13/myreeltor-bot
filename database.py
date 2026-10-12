@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -11,6 +12,9 @@ from typing import Any
 from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+
+logger = logging.getLogger(__name__)
 
 
 class Base(DeclarativeBase):
@@ -343,13 +347,26 @@ async def search_properties(
         if price_min is not None:
             stmt = stmt.where(Property.price >= price_min)
         if district:
-            district_pattern = f"%{district}%"
-            stmt = stmt.where(
-                or_(
-                    Property.district.ilike(district_pattern),
-                    Property.address.ilike(district_pattern),
+            # Ищем город или район в любом из полей и с разными префиксами.
+            raw_district = district.strip()
+            normalized = raw_district.lower()
+            prefixes = ("г.о. ", "г. ", "р-н ", "г.о.", "г.", "р-н")
+            variants = [raw_district]
+            for prefix in prefixes:
+                if normalized.startswith(prefix):
+                    variants.append(raw_district[len(prefix):].strip())
+            variants = list(dict.fromkeys(value for value in variants if value))
+            conditions = []
+            for variant in variants:
+                pattern = f"%{variant}%"
+                conditions.extend(
+                    (
+                        Property.district.ilike(pattern),
+                        Property.address.ilike(pattern),
+                        Property.title.ilike(pattern),
+                    )
                 )
-            )
+            stmt = stmt.where(or_(*conditions))
         if area_min is not None:
             stmt = stmt.where(Property.area >= area_min)
         if area_max is not None:
@@ -369,4 +386,6 @@ async def search_properties(
             stmt = stmt.limit(limit)
 
         result = await session.execute(stmt)
-        return list(result.scalars().all())
+        properties = list(result.scalars().all())
+        logger.info("search_properties: district=%r → %d результатов", district, len(properties))
+        return properties
