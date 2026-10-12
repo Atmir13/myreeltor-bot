@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import html
 import json
 import logging
 
-from aiogram import Router
+from aiogram import F, Router
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from database import (
@@ -31,6 +34,13 @@ from services.parser import SearchQuery, parse_query
 
 router = Router()
 logger = logging.getLogger(__name__)
+PAGE_SIZE = 5
+
+
+class SearchStates(StatesGroup):
+    """Состояния для хранения последнего поиска пользователя."""
+
+    active = State()
 
 
 SEARCH_HELP = (
@@ -241,61 +251,113 @@ async def find_similar_handler(callback: CallbackQuery) -> None:
         await callback.message.answer("Уточни параметры — и я найду похожие.")
 
 
+async def _send_page(
+    message: Message,
+    properties: list[Property],
+    offset: int,
+    query_hash: str,
+    has_more: bool,
+) -> None:
+    """Отправить страницу карточек и, если нужно, кнопку продолжения."""
+    for prop in properties:
+        rows: list[list[InlineKeyboardButton]] = []
+        if prop.status in {"sold", "archived"}:
+            rows.extend(similar_keyboard().inline_keyboard)
+        card_markup = await build_property_keyboard(prop)
+        if card_markup:
+            rows.extend(card_markup.inline_keyboard)
+        await message.answer(
+            format_property(prop),
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows) if rows else None,
+        )
+    if has_more:
+        await message.answer(
+            "Показаны не все объекты.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(
+                    text="➡️ Показать ещё",
+                    callback_data=f"show_more:{offset + PAGE_SIZE}:{query_hash}",
+                )
+            ]]),
+        )
+
+
+@router.callback_query(F.data.startswith("show_more:"))
+async def show_more_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    """Показать следующие пять объектов последнего поиска."""
+    await callback.answer()
+    if callback.message is None or callback.data is None:
+        return
+    try:
+        _, offset_text, query_hash = callback.data.split(":", 2)
+        offset = int(offset_text)
+        stored = await state.get_data()
+        if stored.get("query_hash") != query_hash:
+            await callback.message.answer("Поиск устарел. Выполни запрос ещё раз.")
+            return
+        query = SearchQuery(**stored["query"])
+        stored_level = stored.get("level", LEVEL_PAID)
+        page_limit = None if stored_level == LEVEL_PAID else get_limit_for_level(stored_level)
+        properties = await fetch_properties(query, page_limit)
+        page = properties[offset:offset + PAGE_SIZE]
+        if not page:
+            await callback.message.answer("Больше объектов нет")
+            return
+        await _send_page(callback.message, page, offset, query_hash, offset + PAGE_SIZE < len(properties))
+    except (ValueError, TypeError, KeyError):
+        logger.exception("Некорректные данные пагинации")
+        await callback.message.answer("Не удалось показать следующую страницу.")
+    except Exception:
+        logger.exception("Ошибка пагинации поиска")
+        await callback.message.answer("Сервис временно недоступен, попробуйте позже.")
+
+
 @router.message(lambda msg: msg.text is not None and not msg.text.startswith("/"))
-async def search_handler(message: Message) -> None:
-    """Обработать пользовательский запрос и показать найденные карточки."""
+async def search_handler(message: Message, state: FSMContext) -> None:
+    """Обработать пользовательский запрос и показать первую страницу карточек."""
     if message.from_user is None or message.text is None:
         return
-
     try:
-        user = await get_or_create_user(
-            telegram_id=message.from_user.id,
-            username=message.from_user.username,
-        )
+        user = await get_or_create_user(message.from_user.id, message.from_user.username)
         level = await get_access_level(message.bot, user)
-        logger.info("Получен поисковый запрос, уровень доступа: %s", level)
-
         if level == LEVEL_BLOCKED:
             await message.answer(
-                "🔒 Бесплатный запрос использован.\n\n"
-                "Оформи подписку — и ищи без ограничений на 30 дней.",
+                "🔒 Бесплатный запрос использован.\n\nОформи подписку — и ищи без ограничений на 30 дней.",
                 reply_markup=paywall_keyboard(),
             )
             return
-
         query = parse_query(message.text[:500])
         if query.is_empty() or not query.has_main_filters():
             await message.answer(SEARCH_HELP)
             return
-
-        properties = await fetch_properties(query, get_limit_for_level(level))
+        search_limit = None if level == LEVEL_PAID else get_limit_for_level(level)
+        properties = await fetch_properties(query, search_limit)
         if not properties:
             if level in (LEVEL_TRIAL, LEVEL_CHANNEL):
                 await update_trial_used(message.from_user.id)
-            await message.answer(
-                "По твоему запросу ничего не найдено. Попробуй другие параметры "
-                "или оформи подписку.",
-                reply_markup=paywall_keyboard(),
-            )
+                await message.answer(
+                    "По твоему запросу ничего не найдено.\n\nПопробуй другие параметры или оформи подписку.",
+                    reply_markup=paywall_keyboard(),
+                )
+            else:
+                await message.answer("По твоему запросу ничего не найдено.\n\nПопробуй другие параметры.")
             return
-
-        for prop in properties:
-            rows: list[list[InlineKeyboardButton]] = []
-            if prop.status in {"sold", "archived"}:
-                rows.extend(similar_keyboard().inline_keyboard)
-            card_markup = await build_property_keyboard(prop)
-            if card_markup:
-                rows.extend(card_markup.inline_keyboard)
-            markup = InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
-            await message.answer(
-                format_property(prop), parse_mode="HTML", reply_markup=markup
-            )
-
+        query_data = {
+            "property_type": query.property_type, "rooms": query.rooms,
+            "price_max": query.price_max, "price_min": query.price_min,
+            "district": query.district, "area_min": query.area_min,
+            "area_max": query.area_max, "text_query": query.text_query,
+        }
+        query_hash = hashlib.sha256(json.dumps(query_data, sort_keys=True).encode()).hexdigest()[:10]
+        await state.set_state(SearchStates.active)
+        await state.update_data(query=query_data, query_hash=query_hash, level=level)
+        page = properties[:PAGE_SIZE]
+        await _send_page(message, page, 0, query_hash, len(properties) > PAGE_SIZE)
         if level in (LEVEL_TRIAL, LEVEL_CHANNEL):
             await update_trial_used(message.from_user.id)
             await message.answer(
-                f"🎁 Это был твой бесплатный запрос ({len(properties)} объектов).\n\n"
-                "Чтобы искать без ограничений — оформи подписку.",
+                f"🎁 Это был твой бесплатный запрос ({len(properties)} объектов).\n\nЧтобы искать без ограничений — оформи подписку.",
                 reply_markup=paywall_keyboard(),
             )
         elif level == LEVEL_PAID:

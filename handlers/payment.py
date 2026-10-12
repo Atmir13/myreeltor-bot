@@ -5,7 +5,14 @@ from __future__ import annotations
 import logging
 
 from aiogram import F, Router
-from aiogram.types import CallbackQuery, LabeledPrice, Message, PreCheckoutQuery
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    LabeledPrice,
+    Message,
+    PreCheckoutQuery,
+)
 
 from database import update_subscription
 
@@ -26,21 +33,24 @@ async def buy_subscription_handler(callback: CallbackQuery) -> None:
         return
 
     try:
-        await callback.message.answer_invoice(
-            title=f"Подписка на {SUBSCRIPTION_DAYS} дней",
-            description=(
-                "Безлимитный поиск объектов недвижимости на 30 дней. "
-                "Автопродление можно отменить в любой момент."
-            ),
-            payload=f"subscription_{callback.from_user.id}_{SUBSCRIPTION_DAYS}",
-            currency="XTR",  # Telegram Stars
+        link = await callback.bot.create_invoice_link(
+            title="Подписка на 30 дней",
+            description="Безлимитный поиск недвижимости на 30 дней.",
+            payload=f"subscription_{callback.from_user.id}_30",
+            currency="XTR",
             prices=[LabeledPrice(label="Подписка", amount=SUBSCRIPTION_PRICE_STARS)],
-            subscription_period=SUBSCRIPTION_DAYS * 24 * 60 * 60,  # 30 дней в секундах
+            subscription_period=2592000,
+        )
+        await callback.message.answer(
+            "Нажми кнопку, чтобы оформить подписку:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="💎 Оформить подписку", url=link)
+            ]]),
         )
         await callback.answer()
     except Exception:
-        logger.exception("Не удалось отправить счёт на оплату")
-        await callback.answer("Не удалось создать счёт. Попробуйте позже.", show_alert=True)
+        logger.exception("Не удалось создать ссылку на оплату")
+        await callback.answer("Не удалось создать счёт. Попробуй позже.", show_alert=True)
 
 
 @router.pre_checkout_query()
