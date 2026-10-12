@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Каталог недвижимости — MyReeltor{% endblock %}
+{% block content %}
+<section class="hero"><p class="eyebrow">КАТАЛОГ НЕДВИЖИМОСТИ</p><h1>Найдите место, которое станет домом</h1><p class="muted">Актуальные объявления квартир, домов и студий.</p></section>
+<form class="filters" method="get" action="/">
+    <label>Тип<select name="property_type"><option value="all">Все</option><option value="квартира" {% if filters.property_type == 'квартира' %}selected{% endif %}>Квартира</option><option value="дом" {% if filters.property_type == 'дом' %}selected{% endif %}>Дом</option><option value="студия" {% if filters.property_type == 'студия' %}selected{% endif %}>Студия</option></select></label>
+    <label>Комнаты<select name="rooms"><option value="all">Все</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4+">4+</option></select></label>
+    <label>Цена от<input type="number" name="price_min" value="{{ filters.price_min or '' }}" placeholder="₽"></label>
+    <label>Цена до<input type="number" name="price_max" value="{{ filters.price_max or '' }}" placeholder="₽"></label>
+    <label>Район<input type="text" name="district" value="{{ filters.district }}" placeholder="Например, Центр"></label>
+    <button class="button" type="submit">Найти</button>
+</form>
+<section class="catalog">
+{% for property in properties %}
+<article class="card">
+    {% if property.photo_url %}<img src="{{ property.photo_url }}" alt="{{ property.title }}">{% else %}<div class="photo-placeholder">MyReeltor</div>{% endif %}
+    <div class="card-body"><h2>{{ property.title }}</h2><p class="price">{% if property.price %}{{ "{:,.0f}".format(property.price).replace(',', ' ') }} ₽{% else %}Цена по запросу{% endif %}</p><p class="muted">{{ property.address or property.district or 'Адрес не указан' }}</p><p class="details">{% if property.rooms %}{{ property.rooms }} комн. · {% endif %}{% if property.area %}{{ property.area }} м²{% endif %}</p><a class="button button-outline" href="/property/{{ property.id }}">Подробнее</a></div>
+</article>
+{% else %}<div class="empty"><h2>Ничего не найдено</h2><p>Попробуйте изменить параметры поиска.</p></div>{% endfor %}
+</section>
+{% endblock %}

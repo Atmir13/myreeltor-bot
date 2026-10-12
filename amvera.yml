@@ -10,7 +10,7 @@ build:
 run:
   persistenceMount: /data
   scriptName: main.py
-  containerPort: 80
+  containerPort: 8000
   russianTrustedCa: false
   singleton: true
   zeroDowntime: false

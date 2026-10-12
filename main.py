@@ -1,5 +1,4 @@
-
-"""Точка входа Telegram-бота."""
+"""Точка входа Telegram-бота и сайта-каталога."""
 
 from __future__ import annotations
 
@@ -8,17 +7,25 @@ import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
+import uvicorn
 from aiogram import Bot, Dispatcher
 
+import sitecustomize  # noqa: F401
 from config import settings
 from database import init_db
 from handlers.admin import router as admin_router
 from handlers.payment import router as payment_router
 from handlers.search import router as search_router
 from handlers.start import router as start_router
+from site.app import app as fastapi_app
 
 
 bot = Bot(token=settings.bot_token)
+dp = Dispatcher()
+dp.include_router(payment_router)
+dp.include_router(admin_router)
+dp.include_router(start_router)
+dp.include_router(search_router)
 
 
 def configure_logging() -> None:
@@ -32,7 +39,6 @@ def configure_logging() -> None:
 
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
-    # Используем maxBytes (camelCase) — совместимо с Python 3.11 и ниже
     file_handler = RotatingFileHandler(
         logs_dir / "bot.log", maxBytes=5_000_000, backupCount=3, encoding="utf-8"
     )
@@ -41,26 +47,36 @@ def configure_logging() -> None:
     root_logger.addHandler(file_handler)
 
 
+async def run_bot() -> None:
+    """Запустить Telegram polling."""
+    try:
+        await dp.start_polling(bot)
+    finally:
+        await bot.session.close()
+
+
+async def run_site() -> None:
+    """Запустить FastAPI-сайт на порту Amvera."""
+    config = uvicorn.Config(
+        fastapi_app,
+        host="0.0.0.0",
+        port=8000,
+        log_level="warning",
+    )
+    server = uvicorn.Server(config)
+    await server.serve()
+
+
 async def main() -> None:
-    """Инициализировать БД и запустить polling."""
+    """Инициализировать базу и параллельно запустить бота и сайт."""
     configure_logging()
     logger = logging.getLogger(__name__)
-    dispatcher = Dispatcher()
-
-    # Порядок: сначала команды и callback'и, потом текстовый поиск
-    dispatcher.include_router(payment_router)
-    dispatcher.include_router(admin_router)
-    dispatcher.include_router(start_router)
-    dispatcher.include_router(search_router)
-
     try:
         await init_db()
         logger.info("База данных инициализирована")
-        await dispatcher.start_polling(bot)
+        await asyncio.gather(run_bot(), run_site())
     except Exception:
-        logger.exception("Не удалось инициализировать базу данных или запустить бота")
-    finally:
-        await bot.session.close()
+        logger.exception("Не удалось запустить бота или сайт")
 
 
 if __name__ == "__main__":
