@@ -40,36 +40,44 @@ async def fetch_ads(city: str = "Нальчик", limit: int = 50) -> list[dict]
     if proxy:
         logger.info("Используется прокси: %s", proxy.split("@")[-1])
 
-    try:
-        timeout = aiohttp.ClientTimeout(total=30)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(ADS_API_URL, params=params, proxy=proxy, timeout=timeout) as response:
-                if response.status == 401:
-                    logger.error("Неверный логин/токен ads-api.ru")
+    timeout = aiohttp.ClientTimeout(total=60, connect=30)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        for attempt in range(3):
+            try:
+                async with session.get(
+                    ADS_API_URL,
+                    params=params,
+                    proxy=proxy,
+                    timeout=timeout,
+                ) as response:
+                    if response.status == 401:
+                        logger.error("Неверный логин/токен ads-api.ru")
+                        return []
+                    if response.status == 403:
+                        logger.error("IP заблокирован (проверьте прокси)")
+                        return []
+                    response.raise_for_status()
+                    payload = await response.json(content_type=None)
+
+                if isinstance(payload, list):
+                    ads = payload
+                elif isinstance(payload, dict):
+                    ads = payload.get("ads") or payload.get("data") or payload.get("items") or []
+                else:
+                    ads = []
+                result = [ad for ad in ads if isinstance(ad, dict)]
+                logger.info("Получено %d объявлений", len(result))
+                return result
+            except (asyncio.TimeoutError, aiohttp.ClientError) as error:
+                logger.warning("Попытка %d/3 не удалась: %s", attempt + 1, error)
+                if attempt == 2:
+                    logger.error("Все попытки исчерпаны")
                     return []
-                if response.status == 403:
-                    logger.error("IP заблокирован (проверьте прокси)")
-                    return []
-                response.raise_for_status()
-                payload = await response.json(content_type=None)
-        if isinstance(payload, list):
-            ads = payload
-        elif isinstance(payload, dict):
-            ads = payload.get("ads") or payload.get("data") or payload.get("items") or []
-        else:
-            ads = []
-        result = [ad for ad in ads if isinstance(ad, dict)]
-        logger.info("Получено %d объявлений", len(result))
-        return result
-    except asyncio.TimeoutError:
-        logger.error("Таймаут при запросе")
-        return []
-    except aiohttp.ClientError as error:
-        logger.error("Ошибка соединения: %s", error)
-        return []
-    except Exception:
-        logger.exception("Ошибка получения объявлений ads-api.ru")
-        return []
+                await asyncio.sleep(2)
+            except Exception:
+                logger.exception("Ошибка получения объявлений ads-api.ru")
+                return []
+    return []
 
 
 async def _source_exists(source_url: str) -> bool:
