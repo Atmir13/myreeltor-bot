@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 
@@ -35,10 +36,20 @@ async def fetch_ads(city: str = "Нальчик", limit: int = 50) -> list[dict]
         "limit": limit,
         "page": 1,
     }
+    proxy = os.getenv("PROXY_URL")
+    if proxy:
+        logger.info("Используется прокси: %s", proxy.split("@")[-1])
+
     try:
         timeout = aiohttp.ClientTimeout(total=30)
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(ADS_API_URL, params=params) as response:
+            async with session.get(ADS_API_URL, params=params, proxy=proxy, timeout=timeout) as response:
+                if response.status == 401:
+                    logger.error("Неверный логин/токен ads-api.ru")
+                    return []
+                if response.status == 403:
+                    logger.error("IP заблокирован (проверьте прокси)")
+                    return []
                 response.raise_for_status()
                 payload = await response.json(content_type=None)
         if isinstance(payload, list):
@@ -50,6 +61,12 @@ async def fetch_ads(city: str = "Нальчик", limit: int = 50) -> list[dict]
         result = [ad for ad in ads if isinstance(ad, dict)]
         logger.info("Получено %d объявлений", len(result))
         return result
+    except asyncio.TimeoutError:
+        logger.error("Таймаут при запросе")
+        return []
+    except aiohttp.ClientError as error:
+        logger.error("Ошибка соединения: %s", error)
+        return []
     except Exception:
         logger.exception("Ошибка получения объявлений ads-api.ru")
         return []
