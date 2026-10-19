@@ -5,9 +5,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from datetime import datetime
 
-from aiogram import Router
+from aiogram import F, Router
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.filters import Command
 from aiogram.types import Message
 from sqlalchemy import func, select
@@ -29,6 +32,12 @@ from services.overpass import enrich_property
 
 router = Router()
 logger = logging.getLogger(__name__)
+
+
+class ImportCSVStates(StatesGroup):
+    """Состояние ожидания CSV-файла от администратора."""
+
+    waiting_for_file = State()
 
 
 def is_admin(user_id: int) -> bool:
@@ -384,3 +393,63 @@ async def check_handler(message: Message) -> None:
         status_lines.append("💎 Платной подписки нет")
 
     await message.answer("\n".join(status_lines))
+
+
+@router.message(Command("import_csv"))
+async def import_csv_start(message: Message, state: FSMContext) -> None:
+    """Запросить CSV-файл для импорта."""
+    if message.from_user is None or not is_admin(message.from_user.id):
+        return
+    await state.set_state(ImportCSVStates.waiting_for_file)
+    await message.answer("📎 Отправьте CSV-файл (экспорт ads-api.ru).\nИли /cancel чтобы отменить.")
+
+
+@router.message(ImportCSVStates.waiting_for_file, F.document)
+async def import_csv_file(message: Message, state: FSMContext) -> None:
+    """Скачать и импортировать CSV-файл администратора."""
+    if message.from_user is None or not is_admin(message.from_user.id):
+        return
+    if message.document is None:
+        await message.answer("❌ Это не файл. Отправьте CSV.")
+        return
+    tmp_path = f"/tmp/import_{message.document.file_id}.csv"
+    try:
+        file = await message.bot.get_file(message.document.file_id)
+        await message.bot.download_file(file.file_path, tmp_path)
+        from scripts.import_csv import import_csv as do_import
+        result = await do_import(tmp_path)
+        await message.answer(f"✅ Импорт завершён.\nВсего строк: {result['total']}\nИмпортировано: {result['imported']}\nПропущено: {result['skipped']}")
+    except Exception:
+        logger.exception("Ошибка импорта CSV")
+        await message.answer("❌ Ошибка импорта. Смотри логи.")
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        await state.clear()
+
+
+@router.message(Command("cancel"))
+async def cancel_handler(message: Message, state: FSMContext) -> None:
+    """Отменить текущее состояние администратора."""
+    if await state.get_state() is None:
+        await message.answer("Нечего отменять.")
+        return
+    await state.clear()
+    await message.answer("Отменено.")
+
+
+@router.message(Command("sync_ads"))
+async def sync_ads_handler(message: Message) -> None:
+    """Запустить ручную синхронизацию ads-api."""
+    if message.from_user is None or not is_admin(message.from_user.id):
+        return
+    await message.answer("⏳ Синхронизация запущена...")
+    try:
+        from services.ads_api import sync_ads
+        result = await sync_ads()
+        await message.answer(f"✅ Синхронизация завершена.\nПолучено: {result['fetched']}\nСохранено: {result['saved']}")
+    except Exception:
+        logger.exception("Ошибка синхронизации ads")
+        await message.answer("❌ Ошибка. Смотри логи.")

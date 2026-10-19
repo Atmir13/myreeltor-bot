@@ -17,6 +17,7 @@ from handlers.payment import router as payment_router
 from handlers.search import router as search_router
 from handlers.start import router as start_router
 from web.app import app as fastapi_app
+from services.scheduler import start_scheduler
 
 
 bot = Bot(token=settings.bot_token)
@@ -73,7 +74,11 @@ async def main() -> None:
     try:
         await init_db()
         logger.info("База данных инициализирована")
-        await asyncio.gather(run_bot(), run_site())
+        scheduler = start_scheduler(bot)
+        try:
+            await asyncio.gather(run_bot(), run_site())
+        finally:
+            scheduler.shutdown(wait=False)
     except Exception:
         logger.exception("Не удалось запустить бота или сайт")
 
