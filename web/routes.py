@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
@@ -19,6 +20,59 @@ router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
 logger = logging.getLogger(__name__)
 PAGE_SIZE = 16
+
+
+@router.post("/api/ingest")
+async def ingest_ads(payload: dict[str, Any], x_api_key: str | None = Header(default=None)) -> dict[str, int]:
+    """Принять объявления от российской Yandex Cloud Function."""
+    expected_key = os.getenv("INGEST_API_KEY", "")
+    if not expected_key or x_api_key != expected_key:
+        raise HTTPException(status_code=401, detail="Недействительный ключ API")
+    ads = payload.get("ads", [])
+    if not isinstance(ads, list):
+        raise HTTPException(status_code=400, detail="Поле ads должно быть массивом")
+    saved = 0
+    skipped = 0
+    for ad in ads:
+        if not isinstance(ad, dict):
+            skipped += 1
+            continue
+        source_url = str(ad.get("url") or "").strip()
+        if not source_url:
+            skipped += 1
+            continue
+        existing = await _property_by_source_url(source_url)
+        if existing:
+            skipped += 1
+            continue
+        params = ad.get("params") or {}
+        images = ad.get("images") or []
+        first_image = images[0] if images and isinstance(images[0], dict) else {}
+        await add_property(
+            title=str(ad.get("title") or "Объявление"),
+            price=_int_or_none(ad.get("price")),
+            address=ad.get("address", ""),
+            district=ad.get("city1") or ad.get("region", ""),
+            property_type=ad.get("cat2") or "квартира",
+            rooms=_int_or_none(params.get("Количество комнат")),
+            area=_int_or_none(params.get("Площадь")),
+            floor=_int_or_none(params.get("Этаж")),
+            floors_total=_int_or_none(params.get("Этажей в доме")),
+            description=ad.get("description", ""),
+            photo_url=first_image.get("imgurl"),
+            source="ads_api",
+            source_url=source_url,
+        )
+        saved += 1
+    logger.info("Импорт ads-api: сохранено %d, пропущено %d", saved, skipped)
+    return {"saved": saved, "skipped": skipped}
+
+
+async def _property_by_source_url(source_url: str) -> Property | None:
+    """Найти объект по URL источника."""
+    async with async_session_factory() as session:
+        result = await session.execute(select(Property).where(Property.source_url == source_url).limit(1))
+        return result.scalar_one_or_none()
 
 
 def _int_or_none(value: str | int | None, field_name: str = "значение") -> int | None:
