@@ -45,6 +45,7 @@ async def setup_commands(bot: Bot) -> None:
         BotCommand(command="grant", description="Выдать подписку"),
         BotCommand(command="revoke", description="Отозвать подписку"),
         BotCommand(command="check", description="Статус пользователя"),
+        BotCommand(command="subscribers", description="Список подписчиков"),
     ]
     await bot.set_my_commands(user_commands)
     await bot.set_my_commands(commands=admin_commands, scope=BotCommandScopeChat(chat_id=settings.admin_id))

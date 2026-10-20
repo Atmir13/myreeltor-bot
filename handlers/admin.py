@@ -6,7 +6,8 @@ import asyncio
 import json
 import logging
 import os
-from datetime import datetime
+import secrets
+from datetime import datetime, timedelta
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
@@ -20,6 +21,8 @@ from database import (
     User,
     Property,
     UserListing,
+    PendingGrant,
+    get_user_by_username,
     add_property,
     async_session_factory,
     get_property_by_id,
@@ -129,7 +132,7 @@ async def delete_listing(callback: CallbackQuery) -> None:
 
 @router.message(Command("grant"))
 async def grant_handler(message: Message) -> None:
-    """Выдать подписку на 30 дней: /grant <telegram_id>."""
+    """Выдать подписку по @username или создать ссылку-приглашение."""
     if message.from_user is None or not is_admin(message.from_user.id):
         return
 
@@ -138,29 +141,28 @@ async def grant_handler(message: Message) -> None:
         await message.answer("Использование: /grant <telegram_id>")
         return
 
-    try:
-        target_id = int(parts[1])
-    except ValueError:
-        await message.answer("ID должен быть числом.")
-        return
-
-    target = await get_user(target_id)
+    username = parts[1].lstrip("@")
+    target = await get_user_by_username(username)
     if target is None:
-        await message.answer(f"Пользователь {target_id} не найден.")
+        token = secrets.token_urlsafe(24)
+        async with async_session_factory() as session:
+            session.add(PendingGrant(token=token, username=username))
+            await session.commit()
+        await message.answer(f"Пользователь @{username} не найден.\nОтправьте ему эту ссылку:\nhttps://t.me/MyReeltor_bot?start=grant_{token}")
         return
 
     try:
         expires_at = await update_subscription(
-            telegram_id=target_id,
+            telegram_id=target.telegram_id,
             days=30,
             payment_id="admin_grant",
             amount_stars=0,
         )
         await message.answer(
-            f"✅ Подписка выдана пользователю {target_id} до "
+            f"✅ Подписка выдана @{username} до "
             f"{expires_at.strftime('%d.%m.%Y')}."
         )
-        logger.info("Админ выдал подписку %s до %s", target_id, expires_at)
+        logger.info("Админ выдал подписку @%s до %s", username, expires_at)
     except Exception:
         logger.exception("Ошибка при выдаче подписки")
         await message.answer("Не удалось выдать подписку.")
@@ -168,7 +170,7 @@ async def grant_handler(message: Message) -> None:
 
 @router.message(Command("revoke"))
 async def revoke_handler(message: Message) -> None:
-    """Отозвать подписку: /revoke <telegram_id>."""
+    """Отозвать подписку по @username."""
     if message.from_user is None or not is_admin(message.from_user.id):
         return
 
@@ -177,11 +179,12 @@ async def revoke_handler(message: Message) -> None:
         await message.answer("Использование: /revoke <telegram_id>")
         return
 
-    try:
-        target_id = int(parts[1])
-    except ValueError:
-        await message.answer("ID должен быть числом.")
+    username = parts[1].lstrip("@")
+    target = await get_user_by_username(username)
+    if target is None:
+        await message.answer(f"Пользователь @{username} не найден.")
         return
+    target_id = target.telegram_id
 
     async with async_session_factory() as session:
         result = await session.execute(
@@ -194,7 +197,7 @@ async def revoke_handler(message: Message) -> None:
         target.subscription_expires_at = None
         await session.commit()
 
-    await message.answer(f"🔒 Подписка пользователя {target_id} отозвана.")
+    await message.answer(f"🔒 Подписка пользователя @{username} отозвана.")
 
 
 @router.message(Command("sold"))
@@ -441,7 +444,7 @@ async def stats_handler(message: Message) -> None:
 
 @router.message(Command("check"))
 async def check_handler(message: Message) -> None:
-    """Статус пользователя: /check <telegram_id>."""
+    """Показать статус пользователя по @username."""
     if message.from_user is None or not is_admin(message.from_user.id):
         return
 
@@ -450,19 +453,14 @@ async def check_handler(message: Message) -> None:
         await message.answer("Использование: /check <telegram_id>")
         return
 
-    try:
-        target_id = int(parts[1])
-    except ValueError:
-        await message.answer("ID должен быть числом.")
-        return
-
-    target = await get_user(target_id)
+    username = parts[1].lstrip("@")
+    target = await get_user_by_username(username)
     if target is None:
-        await message.answer(f"Пользователь {target_id} не найден.")
+        await message.answer(f"Пользователь @{username} не найден.")
         return
 
     status_lines = [
-        f"👤 <b>Пользователь {target_id}</b>",
+        f"👤 <b>Пользователь @{username}</b>",
         f"Username: @{target.username or '—'}",
         f"Триал использован: {'да' if target.trial_used else 'нет'}",
         f"Подписан на канал: {'да' if target.subscribed_to_channel else 'нет'}",
@@ -475,6 +473,66 @@ async def check_handler(message: Message) -> None:
         status_lines.append("💎 Платной подписки нет")
 
     await message.answer("\n".join(status_lines))
+
+
+@router.message(Command("subscribers"))
+async def subscribers_handler(message: Message) -> None:
+    """Показать пользователей и состояние их подписок."""
+    if message.from_user is None or not is_admin(message.from_user.id):
+        return
+    async with async_session_factory() as session:
+        result = await session.execute(select(User))
+        users = list(result.scalars().all())
+    now = datetime.utcnow()
+    users.sort(key=lambda user: (not has_active_subscription(user), user.username or ""))
+    for start in range(0, len(users), 20):
+        lines = []
+        for user in users[start:start + 20]:
+            name = f"@{user.username}" if user.username else f"ID {user.telegram_id}"
+            if has_active_subscription(user):
+                line = f"✅ {name} — подписка до {user.subscription_expires_at:%d.%m.%Y}"
+            elif user.subscription_expires_at:
+                line = f"❌ {name} — подписка истекла {user.subscription_expires_at:%d.%m.%Y}"
+            else:
+                line = f"⚪ {name} — нет подписки"
+            lines.append(line)
+        keyboard = []
+        if start >= 20:
+            keyboard.append(InlineKeyboardButton(text="← Назад", callback_data=f"subs_page:{start - 20}"))
+        if start + 20 < len(users):
+            keyboard.append(InlineKeyboardButton(text="Вперёд →", callback_data=f"subs_page:{start + 20}"))
+        await message.answer("<b>Подписчики</b>\n" + "\n".join(lines), parse_mode="HTML",
+                             reply_markup=InlineKeyboardMarkup(inline_keyboard=[keyboard]) if keyboard else None)
+
+
+@router.callback_query(F.data.startswith("subs_page:"))
+async def subscribers_page(callback: CallbackQuery) -> None:
+    """Показать страницу списка подписчиков."""
+    if callback.from_user is None or not is_admin(callback.from_user.id):
+        return
+    offset = int(callback.data.split(":", 1)[1])
+    async with async_session_factory() as session:
+        result = await session.execute(select(User))
+        users = list(result.scalars().all())
+    users.sort(key=lambda user: (not has_active_subscription(user), user.username or ""))
+    page = users[offset:offset + 20]
+    lines = []
+    for user in page:
+        name = f"@{user.username}" if user.username else f"ID {user.telegram_id}"
+        if has_active_subscription(user):
+            lines.append(f"✅ {name} — подписка до {user.subscription_expires_at:%d.%m.%Y}")
+        elif user.subscription_expires_at:
+            lines.append(f"❌ {name} — подписка истекла {user.subscription_expires_at:%d.%m.%Y}")
+        else:
+            lines.append(f"⚪ {name} — нет подписки")
+    buttons = []
+    if offset:
+        buttons.append(InlineKeyboardButton(text="← Назад", callback_data=f"subs_page:{max(0, offset - 20)}"))
+    if offset + 20 < len(users):
+        buttons.append(InlineKeyboardButton(text="Вперёд →", callback_data=f"subs_page:{offset + 20}"))
+    await callback.message.edit_text("<b>Подписчики</b>\n" + "\n".join(lines), parse_mode="HTML",
+                                     reply_markup=InlineKeyboardMarkup(inline_keyboard=[buttons]) if buttons else None)
+    await callback.answer()
 
 
 @router.message(Command("import_csv"))

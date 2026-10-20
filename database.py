@@ -101,6 +101,17 @@ class UserListing(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
+class PendingGrant(Base):
+    """Одноразовая ссылка на выдачу подписки пользователю."""
+
+    __tablename__ = "pending_grants"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    token: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
+    username: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class Subscription(Base):
     """История платежей и подписок."""
 
@@ -169,6 +180,22 @@ async def init_db() -> None:
 # ============================
 # Функции для работы с юзером
 # ============================
+
+async def get_user_by_username(username: str) -> User | None:
+    """Найти пользователя по @username без символа @."""
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(User).where(User.username == username.lstrip("@"))
+        )
+        return result.scalar_one_or_none()
+
+
+async def get_pending_grant(token: str) -> PendingGrant | None:
+    """Найти отложенную выдачу по одноразовому токену."""
+    async with async_session_factory() as session:
+        result = await session.execute(select(PendingGrant).where(PendingGrant.token == token))
+        return result.scalar_one_or_none()
+
 
 async def get_user(telegram_id: int) -> User | None:
     """Вернуть пользователя по telegram_id или None."""
