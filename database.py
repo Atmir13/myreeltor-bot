@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, func, or_, select
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, delete, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -175,6 +175,15 @@ async def init_db() -> None:
     """Создать таблицы, если они ещё не существуют."""
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
+        await connection.execute(text(
+            "CREATE TABLE IF NOT EXISTS pending_grants ("
+            "id INTEGER PRIMARY KEY, "
+            "token VARCHAR(128) UNIQUE NOT NULL, "
+            "username VARCHAR(255) NOT NULL, "
+            "created_at DATETIME"
+            ")"
+        ))
+    logger.info("База данных инициализирована (все таблицы проверены)")
 
 
 # ============================
@@ -202,6 +211,13 @@ async def get_pending_grant(token: str) -> PendingGrant | None:
     async with async_session_factory() as session:
         result = await session.execute(select(PendingGrant).where(PendingGrant.token == token))
         return result.scalar_one_or_none()
+
+
+async def delete_pending_grant(token: str) -> None:
+    """Удалить использованный токен."""
+    async with async_session_factory() as session:
+        await session.execute(delete(PendingGrant).where(PendingGrant.token == token))
+        await session.commit()
 
 
 async def get_user(telegram_id: int) -> User | None:

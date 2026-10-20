@@ -16,7 +16,7 @@ from aiogram.types import (
 )
 
 from config import settings
-from database import PendingGrant, async_session_factory, get_or_create_user, get_pending_grant, update_subscription
+from database import get_or_create_user, get_pending_grant, delete_pending_grant, update_subscription
 from services.access import check_channel_subscription
 from handlers.forms import BuyForm, SellForm
 
@@ -54,11 +54,7 @@ async def start_handler(message: Message, state: FSMContext) -> None:
                 return
             user = await get_or_create_user(message.from_user.id, message.from_user.username)
             expires_at = await update_subscription(message.from_user.id, 30, "grant_link", 0)
-            async with async_session_factory() as session:
-                current = await session.get(PendingGrant, pending.id)
-                if current:
-                    await session.delete(current)
-                    await session.commit()
+            await delete_pending_grant(token)
             await message.answer("🎉 Вам выдана подписка на 30 дней! Приятного поиска.")
             await message.bot.send_message(settings.admin_id, f"✅ Пользователь @{message.from_user.username or pending.username} активировал подписку по ссылке.")
             return
