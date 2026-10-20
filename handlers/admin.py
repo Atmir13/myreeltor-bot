@@ -23,6 +23,7 @@ from database import (
     UserListing,
     PendingGrant,
     get_user_by_username,
+    save_pending_grant,
     add_property,
     async_session_factory,
     get_property_by_id,
@@ -138,16 +139,14 @@ async def grant_handler(message: Message) -> None:
 
     parts = (message.text or "").split()
     if len(parts) < 2:
-        await message.answer("Использование: /grant <telegram_id>")
+        await message.answer("Использование: /grant @username\nПример: /grant @ivan_petrov")
         return
 
     username = parts[1].lstrip("@")
     target = await get_user_by_username(username)
     if target is None:
         token = secrets.token_urlsafe(24)
-        async with async_session_factory() as session:
-            session.add(PendingGrant(token=token, username=username))
-            await session.commit()
+        await save_pending_grant(token, username)
         await message.answer(f"Пользователь @{username} не найден.\nОтправьте ему эту ссылку:\nhttps://t.me/MyReeltor_bot?start=grant_{token}")
         return
 

@@ -190,6 +190,13 @@ async def get_user_by_username(username: str) -> User | None:
         return result.scalar_one_or_none()
 
 
+async def save_pending_grant(token: str, username: str) -> None:
+    """Сохранить одноразовую ссылку на выдачу подписки."""
+    async with async_session_factory() as session:
+        session.add(PendingGrant(token=token, username=username.lstrip("@")))
+        await session.commit()
+
+
 async def get_pending_grant(token: str) -> PendingGrant | None:
     """Найти отложенную выдачу по одноразовому токену."""
     async with async_session_factory() as session:
