@@ -32,7 +32,7 @@ async def fetch_ads(city: str = "Нальчик", limit: int = 50) -> list[dict]
         "user": os.getenv("ADS_API_USER", ""),
         "token": os.getenv("ADS_API_TOKEN", ""),
         "city": city,
-        "category_id": 1,
+        "category_id": 2,
         "limit": limit,
         "page": 1,
     }
