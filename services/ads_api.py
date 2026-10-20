@@ -59,12 +59,13 @@ async def fetch_ads(city: str = "Нальчик", limit: int = 50) -> list[dict]
                     response.raise_for_status()
                     payload = await response.json(content_type=None)
 
-                if isinstance(payload, list):
-                    ads = payload
-                elif isinstance(payload, dict):
-                    ads = payload.get("ads") or payload.get("data") or payload.get("items") or []
-                else:
-                    ads = []
+                if not isinstance(payload, dict) or payload.get("code") != 200:
+                    logger.error("API вернул ошибку: %s", payload)
+                    return []
+                ads = payload.get("data", [])
+                if not ads:
+                    logger.warning("API вернул пустой список объявлений")
+                    return []
                 result = [ad for ad in ads if isinstance(ad, dict)]
                 logger.info("Получено %d объявлений", len(result))
                 return result
@@ -92,20 +93,27 @@ async def save_ads(ads: list[dict]) -> int:
     saved = 0
     for ad in ads:
         try:
-            source_url = str(ad.get("url") or ad.get("source_url") or "").strip()
+            source_url = str(ad.get("url") or "").strip()
             if not source_url or await _source_exists(source_url):
                 continue
+            params = ad.get("params") or {}
+            images = ad.get("images") or []
+            first_image = images[0] if images and isinstance(images[0], dict) else {}
+            city = str(ad.get("city1") or "").strip()
+            property_type = str(ad.get("cat2") or "квартира").strip()
             title = str(ad.get("title") or "Объявление").strip()
             property_id = await add_property(
                 title=title,
                 price=_int_or_none(ad.get("price")),
-                address=ad.get("address"),
-                district=ad.get("city"),
-                property_type=ad.get("category", "квартира"),
-                rooms=_int_or_none(ad.get("rooms")),
-                area=_int_or_none(ad.get("area")),
+                address=ad.get("address", ""),
+                district=city or ad.get("region", ""),
+                property_type=property_type,
+                rooms=_int_or_none(params.get("Количество комнат")),
+                area=_int_or_none(params.get("Площадь")),
+                floor=_int_or_none(params.get("Этаж")),
+                floors_total=_int_or_none(params.get("Этажей в доме")),
                 description=ad.get("description", ""),
-                photo_url=ad.get("photo_url"),
+                photo_url=first_image.get("imgurl"),
                 source="ads_api",
                 source_url=source_url,
             )
