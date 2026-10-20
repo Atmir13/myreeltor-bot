@@ -12,12 +12,14 @@ from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import func, select
 
 from config import settings
 from database import (
     User,
+    Property,
+    UserListing,
     add_property,
     async_session_factory,
     get_property_by_id,
@@ -28,6 +30,7 @@ from database import (
     update_subscription,
 )
 from services.overpass import enrich_property
+from services.moderation import publish_listing
 
 
 router = Router()
@@ -43,6 +46,85 @@ class ImportCSVStates(StatesGroup):
 def is_admin(user_id: int) -> bool:
     """Проверить, что пользователь — админ."""
     return user_id == settings.admin_id
+
+
+@router.callback_query(F.data.startswith("approve_"))
+async def approve_listing(callback: CallbackQuery) -> None:
+    """Одобрить заявку и опубликовать её."""
+    if callback.from_user is None or not is_admin(callback.from_user.id):
+        return
+    listing_id = int(callback.data.split("_", 1)[1])
+    await publish_listing(listing_id, callback.bot)
+    await callback.answer(f"Заявление #{listing_id} одобрено")
+    if callback.message:
+        await callback.message.edit_reply_markup(reply_markup=None)
+
+
+@router.callback_query(F.data.startswith("reject_"))
+async def reject_listing(callback: CallbackQuery) -> None:
+    """Отклонить заявку."""
+    if callback.from_user is None or not is_admin(callback.from_user.id):
+        return
+    listing_id = int(callback.data.split("_", 1)[1])
+    async with async_session_factory() as session:
+        listing = await session.get(UserListing, listing_id)
+        if listing:
+            listing.status = "rejected"
+            await session.commit()
+    await callback.answer(f"Объявление #{listing_id} отклонено")
+    if callback.message:
+        await callback.message.edit_reply_markup(reply_markup=None)
+
+
+@router.message(Command("pending"))
+async def pending_handler(message: Message) -> None:
+    """Показать заявки, ожидающие модерации."""
+    if message.from_user is None or not is_admin(message.from_user.id):
+        return
+    async with async_session_factory() as session:
+        result = await session.execute(select(UserListing).where(UserListing.status == "pending_review"))
+        listings = result.scalars().all()
+    if not listings:
+        await message.answer("Заявок на проверку нет.")
+        return
+    for listing in listings:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="✅ Одобрить", callback_data=f"approve_{listing.id}"),
+            InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_{listing.id}"),
+        ]])
+        await message.answer(f"<b>Заявка #{listing.id}</b>\n{listing.title or 'Поиск'}\nКонтакт: {listing.contact or '—'}", parse_mode="HTML", reply_markup=keyboard)
+
+
+@router.message(Command("moderation"))
+async def moderation_handler(message: Message) -> None:
+    """Показать опубликованные за последние 30 дней заявки."""
+    if message.from_user is None or not is_admin(message.from_user.id):
+        return
+    async with async_session_factory() as session:
+        result = await session.execute(select(UserListing).where(UserListing.status == "approved", UserListing.created_at >= datetime.utcnow() - __import__("datetime").timedelta(days=30)))
+        listings = result.scalars().all()
+    for listing in listings:
+        await message.answer(f"#{listing.id} {listing.title or 'Без названия'}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🗑 Удалить", callback_data=f"delete_{listing.id}")]]))
+    if not listings:
+        await message.answer("Опубликованных объявлений за 30 дней нет.")
+
+
+@router.callback_query(F.data.startswith("delete_"))
+async def delete_listing(callback: CallbackQuery) -> None:
+    """Удалить опубликованную заявку из канала."""
+    if callback.from_user is None or not is_admin(callback.from_user.id):
+        return
+    listing_id = int(callback.data.split("_", 1)[1])
+    async with async_session_factory() as session:
+        listing = await session.get(UserListing, listing_id)
+        if listing and listing.message_id:
+            await callback.bot.delete_message(settings.channel_id, listing.message_id)
+        if listing:
+            listing.status = "deleted"
+            await session.commit()
+    await callback.answer("Удалено")
+    if callback.message:
+        await callback.message.edit_reply_markup(reply_markup=None)
 
 
 @router.message(Command("grant"))

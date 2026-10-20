@@ -7,6 +7,7 @@ import logging
 
 from aiogram import F, Router
 from aiogram.filters import CommandStart
+from aiogram.fsm.context import FSMContext
 from aiogram.types import (
     CallbackQuery,
     InlineKeyboardButton,
@@ -17,6 +18,7 @@ from aiogram.types import (
 from config import settings
 from database import get_or_create_user
 from services.access import check_channel_subscription
+from handlers.forms import BuyForm, SellForm
 
 
 router = Router()
@@ -37,12 +39,21 @@ def subscribe_keyboard() -> InlineKeyboardMarkup:
 
 
 @router.message(CommandStart())
-async def start_handler(message: Message) -> None:
+async def start_handler(message: Message, state: FSMContext) -> None:
     """Создать пользователя при первом обращении и поприветствовать его."""
     if message.from_user is None:
         return
 
     try:
+        payload = (message.text or "").split(maxsplit=1)[1].strip() if " " in (message.text or "") else ""
+        if payload == "sell":
+            await state.set_state(SellForm.waiting_title)
+            await message.answer("🏠 Подайте объявление. Укажите название объекта:")
+            return
+        if payload == "buy":
+            await state.set_state(BuyForm.waiting_type)
+            await message.answer("👀 Что вы ищете? Укажите тип недвижимости:")
+            return
         user = await get_or_create_user(
             telegram_id=message.from_user.id,
             username=message.from_user.username,

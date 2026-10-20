@@ -9,11 +9,13 @@ from pathlib import Path
 
 import uvicorn
 from aiogram import Bot, Dispatcher
+from aiogram.types import BotCommand, BotCommandScopeChat
 
 from config import settings
 from database import init_db
 from handlers.admin import router as admin_router
 from handlers.payment import router as payment_router
+from handlers.forms import router as forms_router
 from handlers.search import router as search_router
 from handlers.start import router as start_router
 from web.app import app as fastapi_app
@@ -23,9 +25,29 @@ from services.scheduler import start_scheduler
 bot = Bot(token=settings.bot_token)
 dp = Dispatcher()
 dp.include_router(payment_router)
+dp.include_router(forms_router)
 dp.include_router(admin_router)
 dp.include_router(start_router)
 dp.include_router(search_router)
+
+
+async def setup_commands(bot: Bot) -> None:
+    """Настроить меню команд для админа и пользователей."""
+    user_commands = [
+        BotCommand(command="start", description="Главное меню"),
+        BotCommand(command="help", description="Помощь"),
+    ]
+    admin_commands = user_commands + [
+        BotCommand(command="moderation", description="Управление объявлениями"),
+        BotCommand(command="pending", description="Заявки на проверку"),
+        BotCommand(command="sync_ads", description="Синхронизация с API"),
+        BotCommand(command="stats", description="Статистика"),
+        BotCommand(command="grant", description="Выдать подписку"),
+        BotCommand(command="revoke", description="Отозвать подписку"),
+        BotCommand(command="check", description="Статус пользователя"),
+    ]
+    await bot.set_my_commands(user_commands)
+    await bot.set_my_commands(commands=admin_commands, scope=BotCommandScopeChat(chat_id=settings.admin_id))
 
 
 def configure_logging() -> None:
@@ -73,7 +95,8 @@ async def main() -> None:
     logger = logging.getLogger(__name__)
     try:
         await init_db()
-        logger.info("База данных инициализирована")
+        await setup_commands(bot)
+        logger.info("База данных и меню команд инициализированы")
         scheduler = start_scheduler(bot)
         try:
             await asyncio.gather(run_bot(), run_site())

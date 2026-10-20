@@ -80,6 +80,27 @@ class Property(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
+class UserListing(Base):
+    """Пользовательская заявка на продажу или поиск объекта."""
+
+    __tablename__ = "user_listings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    telegram_id: Mapped[int] = mapped_column(Integer, index=True)
+    type: Mapped[str] = mapped_column(String(20), nullable=False)
+    title: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    price: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rooms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    area: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    address: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    district: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    contact: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    status: Mapped[str] = mapped_column(String(30), default="pending", nullable=False, index=True)
+    message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class Subscription(Base):
     """История платежей и подписок."""
 

@@ -48,11 +48,10 @@ def format_post(prop: Property) -> tuple[str, InlineKeyboardMarkup | None]:
         lines.append(f"📐 Площадь: {prop.area} м²")
     if prop.floor:
         lines.append(f"🏢 Этаж: {prop.floor}")
-    lines.extend(("", "Подробнее в боте: @MyReeltor_bot"))
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
-        text="🔍 Найти похожие",
-        url=f"https://t.me/MyReeltor_bot?start=property_{prop.id}",
-    )]])
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🏠 Подать объявление", url="https://t.me/MyReeltor_bot?start=sell"),
+        InlineKeyboardButton(text="👀 Ищу", url="https://t.me/MyReeltor_bot?start=buy"),
+    ]])
     return "\n".join(lines), keyboard
 
 
