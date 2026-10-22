@@ -49,8 +49,9 @@ def format_post(prop: Property) -> tuple[str, InlineKeyboardMarkup | None]:
     if prop.floor:
         lines.append(f"🏢 Этаж: {prop.floor}")
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="🏠 Подать объявление", url="https://t.me/MyReeltor_bot?start=sell"),
-        InlineKeyboardButton(text="👀 Ищу", url="https://t.me/MyReeltor_bot?start=buy"),
+        InlineKeyboardButton(text="🏠 Продать", url="https://t.me/MyReeltor_bot?start=sell"),
+        InlineKeyboardButton(text="👀 Купить", url="https://t.me/MyReeltor_bot?start=buy"),
+        InlineKeyboardButton(text="👍 Подписка", url="https://t.me/MyReeltor_bot?start=subscribe"),
     ]])
     return "\n".join(lines), keyboard
 

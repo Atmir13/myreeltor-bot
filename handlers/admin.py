@@ -35,6 +35,7 @@ from database import (
 )
 from services.overpass import enrich_property
 from services.moderation import publish_listing
+from handlers.start import RULES_TEXT
 
 
 router = Router()
@@ -129,6 +130,28 @@ async def delete_listing(callback: CallbackQuery) -> None:
     await callback.answer("Удалено")
     if callback.message:
         await callback.message.edit_reply_markup(reply_markup=None)
+
+
+@router.message(Command("set_rules"))
+async def set_rules_handler(message: Message) -> None:
+    """Опубликовать правила канала с кнопкой подписки."""
+    if message.from_user is None or not is_admin(message.from_user.id):
+        return
+    try:
+        await message.bot.send_message(
+            chat_id=settings.channel_id,
+            text=RULES_TEXT,
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(
+                    text="👍 Подписка", url="https://t.me/MyReeltor_bot?start=subscribe",
+                ),
+            ]]),
+        )
+        await message.answer("✅ Правила опубликованы в канале.", parse_mode="HTML")
+    except Exception:
+        logger.exception("Не удалось опубликовать правила канала")
+        await message.answer("Не удалось опубликовать правила. Попробуйте позже.", parse_mode="HTML")
 
 
 @router.message(Command("grant"))
